@@ -1,4 +1,4 @@
-importScripts('sites.js', 'request-headers.js', 'page.js', 'video.js');
+importScripts('sites.js', 'request-headers.js', 'page.js', 'video.js', 'updates.js');
 let state = {running: false, inspecting: false, paused: false, saving: false, title: '', total: 0,
   done: 0, status: 'Готово.', mode: '', branches: [], selectedBranch: '', chapterCount: 0, slug: '',
   kind: 'novel', siteName: '', siteId: 3, starting: false, skipped:0, skippedChapters:[], plan:[],
@@ -333,8 +333,11 @@ async function dispatch(message, sender) {
   return null;
 }
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if(['GET_UPDATES','CHECK_UPDATES'].includes(message.type)){
+    (message.type==='CHECK_UPDATES'?checkForUpdates(!!message.force):getUpdateStatus()).then(respond).catch(()=>respond({error:'Проверка обновлений недоступна.'}));return true;
+  }
   const reply=value=>respond(value===state?publicState():value);
-  if (message.target === 'wildl-export' || message.type === 'STATE') return;
+  if (message.target === 'wildl-export' || ['STATE','UPDATE_STATUS'].includes(message.type)) return;
   if (message.type === 'IMAGE_PROGRESS') {
     restored.then(async () => {
       if (message.jobId !== jobId || sender.url !== chrome.runtime.getURL('offscreen.html')) return;

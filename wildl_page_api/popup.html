@@ -9,6 +9,7 @@
       <button id="refresh" class="refresh" title="Перезапустить расширение. Скачанные главы и серии сохранятся для продолжения."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17"/></svg><span id="refreshLabel">Обновить</span></button>
       <div class="header-meta"><span id="siteLabel">Сайт не определен</span><span class="site-support">Поддержка сайтов группы Lib</span></div>
     </header>
+    <aside id="updateBanner" class="update-banner" hidden role="status"><strong id="updateTitle"></strong><a id="updateDownload" href="https://github.com/WildLIK/LibSaver/releases/latest" target="_blank" rel="noopener noreferrer">Скачать обновление</a></aside>
     <main>
       <section class="book">
         <div id="kindLabel" class="eyebrow">ТАЙТЛ</div><h2 id="bookTitle">Откройте тайтл Lib</h2>
@@ -39,6 +40,13 @@
           <div><label id="intervalLabel" for="pause">Интервал, сек.</label><input id="pause" type="number" min="0" step="any" value="0"></div>
           <div class="full"><label for="limitPause">Ожидание при лимите API, сек.</label><input id="limitPause" type="number" min="30" value="180"></div>
           <p id="settingsHint" class="hint full">Больше потоков может ускорить загрузку, но повышает риск лимита. Интервал — пауза каждого потока между главами. Время ожидания сервера имеет приоритет.</p>
+          <details class="about full"><summary>О проекте и обновлениях<span class="chevron" aria-hidden="true">⌄</span></summary>
+            <div class="about-content"><div class="update-tools"><span id="installedVersion">Версия 2.2</span><button id="checkUpdates" type="button">Проверить обновления</button></div>
+            <p id="updateStatus" class="hint">Новые выпуски проверяются раз в сутки.</p>
+            <p class="hint"><a href="https://github.com/WildLIK/LibSaver" target="_blank" rel="noopener noreferrer">GitHub: LibSaver</a> · Для уведомлений о выпусках включите Watch → Custom → Releases.</p>
+            <p class="disclaimer">Проект не связан с администрацией AnimeLib, MangaLib и RanobeLib. Все права на контент принадлежат правообладателям. Расширение предназначено только для личного офлайн-доступа. Пользователь самостоятельно несёт ответственность за соблюдение авторских прав и правил площадок.</p>
+            </div>
+          </details>
         </div>
       </details>
       <section class="progress" aria-label="Прогресс скачивания">

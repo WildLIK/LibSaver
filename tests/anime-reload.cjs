@@ -8,6 +8,7 @@ const root=path.resolve(__dirname,'../wildl_page_api'),tmp=fs.mkdtempSync(path.j
  fs.writeFileSync(path.join(tmp,'profile','Default','Preferences'),JSON.stringify({extensions:{ui:{developer_mode:true}}}));
  browser=await chromium.launchPersistentContext(path.join(tmp,'profile'),{executablePath:chromium.executablePath(),headless:true,acceptDownloads:true,downloadsPath:downloads,args:['--enable-unsafe-extension-debugging'],ignoreDefaultArgs:['--disable-extensions']});
  await browser.route('https://v5.animelib.org/**',route=>route.fulfill({body:'<html data-id="5"></html>'}));
+ await browser.route('https://api.github.com/repos/WildLIK/LibSaver/releases/latest',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({tag_name:'v2.2'}),headers:{'Access-Control-Allow-Origin':'*'}}));
  await browser.route('https://api.cdnlibs.org/**',route=>{
   const u=new URL(route.request().url());let data;
   if(u.pathname.endsWith('/constants'))data={videoServers:[{id:'main',url:'https://video1.cdnlibs.org/.аs/'}]};
@@ -53,11 +54,22 @@ const root=path.resolve(__dirname,'../wildl_page_api'),tmp=fs.mkdtempSync(path.j
  assert.equal(await popup.evaluate(()=>episodeRanges([{season:1,number:1},{season:1,number:2},{season:1,number:4},{season:2,number:1},{season:2,number:2}])),'сезон 1: 1–2, 4; сезон 2: 1–2');
  assert.equal(await popup.evaluate(()=>episodeRanges([{season:2,number:1},{season:2,number:2},{season:10000,number:1,episodeKind:'recap',groupLabel:'Рекап'},{season:10000,number:2,episodeKind:'recap',groupLabel:'Рекап'}])),'сезон 2: 1–2; рекапы: 1–2');
  assert.equal(await popup.evaluate(()=>episodeRanges([{season:10000,number:1,episodeKind:'recap'}])),'рекапы: 1');
- await popup.selectOption('#branch','1:2:Animelib');await popup.locator('.settings summary').click();await popup.fill('#pause','5');await popup.locator('.settings summary').click();
+ await popup.selectOption('#branch','1:2:Animelib');await popup.locator('.settings > summary').click();await popup.fill('#pause','5');await popup.locator('.settings > summary').click();
  await popup.click('#start');await popup.waitForFunction(()=>document.querySelector('#count').textContent.startsWith('1 /'),null,{timeout:12000}).catch(async error=>{console.log(await popup.locator('#status').textContent(),await popup.locator('#log').textContent());console.log(await worker.evaluate(()=>publicState()));throw error;});
  assert(await popup.locator('#refresh').isEnabled());assert.equal(await popup.locator('#newTitle').textContent(),'Начать другую загрузку');
  assert((await popup.locator('#newTitle').boundingBox()).height>=36);
  const oldState=await worker.evaluate(()=>publicState());assert.equal(oldState.skipped,1);assert.match(oldState.log.join('\n'),/доступно 5 из 6/);
+ await worker.evaluate(async()=>{
+   await (updateRequest||Promise.resolve());await chrome.storage.local.remove('wildlUpdates');
+   const original=globalThis.fetch;
+   globalThis.fetch=(url,options)=>url===UPDATE_API?Promise.resolve(new Response(JSON.stringify({tag_name:'v2.3'}),{headers:{'Content-Type':'application/json'}})):original(url,options);
+   await checkForUpdates(true);globalThis.fetch=original;
+ });
+ await popup.waitForFunction(()=>!document.querySelector('#updateBanner').hidden);
+ assert(await worker.evaluate(()=>state.running),'Release notice must not interrupt a download');
+ assert.equal(await popup.locator('#updateDownload').getAttribute('href'),'https://github.com/WildLIK/LibSaver/releases/tag/v2.3');
+ await worker.evaluate(async()=>{await chrome.storage.local.remove('wildlUpdates');await checkForUpdates(true);});
+ await popup.waitForFunction(()=>document.querySelector('#updateBanner').hidden);
  await book.evaluate(()=>{history.pushState({},'',location.pathname+'?episode=2');const frame=document.createElement('iframe');frame.src='https://v5.animelib.org/player-test';document.body.append(frame);});
  await book.waitForTimeout(100);assert(await worker.evaluate(()=>state.running),'Changing episode/player frame must not be treated as source reload');
  mediaRequests.push(...await getMedia());

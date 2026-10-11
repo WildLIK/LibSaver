@@ -216,7 +216,33 @@ $('branch').onchange = () => send({type: 'SELECT_BRANCH', branchId: $('branch').
 $('pauseJob').onclick = () => send({type: state.paused ? 'RESUME' : 'PAUSE'});
 $('stop').onclick = () => send({type: 'STOP'});
 $('savePartial').onclick = () => send({type:'SAVE_PARTIAL',format:$('format').value});
-chrome.runtime.onMessage.addListener(message => { if (message.type === 'STATE' && message.state) acceptState(message.state); });
+function renderUpdates(info){
+  if(!info||typeof info.installedVersion!=='string')return;
+  $('installedVersion').textContent='Версия '+info.installedVersion;
+  $('updateBanner').hidden=!info.available;
+  $('updateTitle').textContent=info.available?'Доступна версия '+info.latestVersion:'';
+  // Only navigate to our own releases, even if cached data is malformed.
+  let url='https://github.com/WildLIK/LibSaver/releases/latest';
+  try{const candidate=new URL(info.releaseUrl);if(candidate.protocol==='https:'&&candidate.hostname==='github.com'&&!candidate.username&&!candidate.password&&candidate.pathname.startsWith('/WildLIK/LibSaver/releases/'))url=candidate.href;}catch{}
+  $('updateDownload').href=url;
+  $('updateStatus').textContent=info.error?'Проверка недоступна: '+info.error:
+    info.available?'Новый выпуск готов. Скачайте его и замените файлы установленного расширения.':
+    info.checkedAt?info.latestVersion?'Установлена актуальная версия. Проверяем новые выпуски раз в сутки.':'Пока нет опубликованных выпусков. Проверяем раз в сутки.':'Новые выпуски проверяются раз в сутки.';
+}
+let updateChecking=false;
+async function refreshUpdates(force=false){
+  if(updateChecking)return;
+  updateChecking=true;$('checkUpdates').disabled=true;$('updateStatus').textContent='Проверяю GitHub Releases…';
+  let timer;
+  try{const result=await Promise.race([Promise.resolve().then(()=>chrome.runtime.sendMessage({type:'CHECK_UPDATES',force})),
+    new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Нет ответа от проверки обновлений.')),12000);})]);
+    if(!result||typeof result.installedVersion!=='string')throw new Error('Проверка вернула пустой ответ.');renderUpdates(result);}
+  catch{$('updateStatus').textContent='Проверка обновлений недоступна. Загрузки продолжают работать.';}
+  finally{clearTimeout(timer);updateChecking=false;$('checkUpdates').disabled=false;}
+}
+$('checkUpdates').onclick=()=>refreshUpdates(true);
+chrome.runtime.onMessage.addListener(message => { if (message.type === 'STATE' && message.state) acceptState(message.state);
+  if(message.type==='UPDATE_STATUS')renderUpdates(message.update); });
 async function refresh() {
   if (refreshing) return false;
   refreshing=true;
@@ -236,4 +262,5 @@ async function initialize() {
   if(await refresh())await inspectIfNeeded();
 }
 initialize();
+refreshUpdates();
 setInterval(refresh, 1000);

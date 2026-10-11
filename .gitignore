@@ -13,6 +13,7 @@
 !tests/content-lifecycle.cjs
 !tests/quality-summary.cjs
 !tests/video.cjs
+!tests/updates.cjs
 !tests/anime-reload.cjs
 !tests/popup-ui.cjs
 !tests/popup-startup.cjs

@@ -19,6 +19,7 @@ const root = path.resolve(__dirname, '../wildl_page_api');
         branches:[{id:'13947',name:'Silent Step',count:3161},{id:'13303',name:'Disoer',count:2250}],log:[]};
       window.chrome = {runtime:{reload:()=>window.reloads++,onMessage:{addListener:fn=>listeners.push(fn)},sendMessage:async message => {
         window.calls.push(message);
+        if(message.type==='CHECK_UPDATES')return {installedVersion:'2.2',latestVersion:'2.2',checkedAt:1,available:false};
         if(message.type==='SELECT_BRANCH') {state.selectedBranch=message.branchId;state.total=state.branches.find(branch=>branch.id===message.branchId)?.count||state.chapterCount;}
         if(message.type==='INSPECT') {state.inspecting=false;state.status='Список глав обновлён.';}
         if(message.type==='START') {state.running=true;state.total=10;state.done=2;state.status='Скачиваю: Том 1 Глава 3';}
@@ -74,13 +75,13 @@ const root = path.resolve(__dirname, '../wildl_page_api');
     await page.locator('#bar').evaluate(element=>Promise.all(element.getAnimations().map(animation=>animation.finished)));
     await page.screenshot({path:path.join(__dirname,'../diagnostics/ui/popup-skipped.png'),fullPage:true});
     assert(!(await page.locator('#refresh').isDisabled()));
-    await page.locator('.settings summary').click();
+    await page.locator('.settings > summary').click();
     await page.locator('.log-panel summary').click();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth>400),false);
     const buttons = await page.locator('.actions').boundingBox();
     assert(buttons.y+buttons.height<=600);
     await page.screenshot({path:path.join(__dirname,'../diagnostics/ui/popup-settings.png'),fullPage:true});
-    await page.locator('.settings summary').click();
+    await page.locator('.settings > summary').click();
     await page.locator('.log-panel summary').click();
     await page.evaluate(()=>window.changeState({kind:'manga',siteName:'MangaLib',title:'Всеведущий читатель',slug:'34466--jeonjijeog-dogja-sijeom_',
       chapterCount:313,total:187,done:0,skipped:0,selectedBranch:'teams:2460',status:'Готово к скачиванию.',branches:[{id:'teams:2460',name:'Assley Team',count:187}]}));
@@ -98,6 +99,17 @@ const root = path.resolve(__dirname, '../wildl_page_api');
     assert.equal(await page.locator('#fromLabel').textContent(),'С серии');
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>400),false);
     await page.screenshot({path:path.join(__dirname,'../diagnostics/ui/popup-anime.png'),fullPage:true});
+    await page.evaluate(()=>renderUpdates({installedVersion:'2.2',latestVersion:'2.3',available:true,releaseUrl:'https://github.com/WildLIK/LibSaver/releases/tag/v2.3'}));
+    assert(await page.locator('#updateBanner').isVisible());assert.match(await page.locator('#updateTitle').textContent(),/2\.3/);
+    assert.equal(await page.locator('#updateDownload').getAttribute('href'),'https://github.com/WildLIK/LibSaver/releases/tag/v2.3');
+    await page.evaluate(()=>renderUpdates({installedVersion:'2.2',latestVersion:'2.3',available:true,releaseUrl:'https://evil.test/'}));
+    assert.equal(await page.locator('#updateDownload').getAttribute('href'),'https://github.com/WildLIK/LibSaver/releases/latest');
+    await page.locator('.settings > summary').click();await page.locator('.about > summary').click();
+    assert.match(await page.locator('.disclaimer').textContent(),/Пользователь самостоятельно несёт ответственность/);
+    await page.click('#checkUpdates');await page.waitForFunction(()=>document.querySelector('#updateBanner').hidden);
+    assert(await page.evaluate(()=>window.calls.some(call=>call.type==='CHECK_UPDATES'&&call.force)));
+    assert(!(await page.locator('.error-frame').isVisible()),'Update checks must not change the download/error phase');
+    await page.screenshot({path:path.join(__dirname,'../diagnostics/ui/popup-about-2.2.png'),fullPage:true});
     console.log(`PASS popup: translator, refresh, pause/resume/stop, novel/manga formats, locked controls; ${overflow.height}px default height, no horizontal overflow.`);
   } finally {await browser.close();}
 })().catch(error => {console.error(error);process.exitCode=1;});
