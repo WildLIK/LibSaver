@@ -1,0 +1,14 @@
+{
+  "name": "libsaver",
+  "version": "2.1.0",
+  "private": true,
+  "description": "Browser extension for downloading novels, manga and anime from Lib sites",
+  "repository": {"type":"git","url":"https://github.com/WildLIK/LibSaver.git"},
+  "bugs": {"url":"https://github.com/WildLIK/LibSaver/issues"},
+  "scripts": {
+    "test": "node scripts/test.cjs",
+    "test:ui": "node scripts/test.cjs ui"
+  },
+  "engines": {"node": ">=20"},
+  "devDependencies": {"playwright": "1.62.1"}
+}

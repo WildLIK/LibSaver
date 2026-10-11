@@ -1,0 +1,79 @@
+{
+  "manifest_version": 3,
+  "name": "WildL Downloader",
+  "version": "2.1",
+  "minimum_chrome_version": "116",
+  "description": "Загружает любимые произведения: новеллы, манги и аниме с сайтов группы Lib",
+  "permissions": [
+    "tabs",
+    "downloads",
+    "storage",
+    "scripting",
+    "offscreen",
+    "declarativeNetRequestWithHostAccess",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "*://*.ranobelib.me/*",
+    "*://*.ranobelib.org/*",
+    "*://*.mangalib.me/*",
+    "*://*.mangalib.org/*",
+    "*://*.hentailib.me/*",
+    "*://*.hentailib.org/*",
+    "*://*.slashlib.me/*",
+    "*://*.slashlib.org/*",
+    "*://*.shlib.life/*",
+    "*://api.cdnlibs.org/*",
+    "https://*.imglib.info/*",
+    "https://*.cdnlibs.org/*",
+    "https://*.hentaicdn.org/*",
+    "*://*.animelib.org/*",
+    "*://*.animelib.me/*",
+    "https://*.kodikplayer.com/*",
+    "https://*.kodik.info/*",
+    "https://*.kodikvideo.com/*",
+    "https://*.kodik-cdn.com/*",
+    "https://*.kodikcdn.com/*",
+    "https://*.solodcdn.com/*"
+  ],
+  "action": {
+    "default_title": "WildL Downloader",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.ranobelib.me/*",
+        "*://*.ranobelib.org/*",
+        "*://*.mangalib.me/*",
+        "*://*.mangalib.org/*",
+        "*://*.hentailib.me/*",
+        "*://*.hentailib.org/*",
+        "*://*.slashlib.me/*",
+        "*://*.slashlib.org/*",
+        "*://*.shlib.life/*",
+        "*://*.animelib.org/*",
+        "*://*.animelib.me/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

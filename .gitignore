@@ -1,0 +1,28 @@
+# Publish only source, documentation and self-contained tests.
+*
+!.gitignore
+!.gitattributes
+!README.md
+!package.json
+!package-lock.json
+!wildl_page_api/
+!wildl_page_api/**
+!scripts/
+!scripts/test.cjs
+!tests/
+!tests/content-lifecycle.cjs
+!tests/quality-summary.cjs
+!tests/video.cjs
+!tests/anime-reload.cjs
+!tests/popup-ui.cjs
+!tests/popup-startup.cjs
+
+# Never publish build keys, packages, credentials or installed dependencies.
+*.pem
+*.key
+*.crx
+*.zip
+.env
+.env.*
+node_modules/
+**/node_modules/

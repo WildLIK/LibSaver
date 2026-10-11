@@ -1,0 +1,1 @@
+Local PDF assets: pdf-lib 1.17.1 (MIT), @pdf-lib/fontkit 1.1.1 (MIT), Noto Serif Regular (SIL OFL 1.1). No remote scripts or fonts are loaded by the extension. pdf-lib is copied from the bundled runtime; fontkit from its published npm tarball; Noto Serif from notofonts/noto-fonts. License notices are included in this directory.
