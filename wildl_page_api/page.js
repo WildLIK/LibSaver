@@ -45,6 +45,23 @@ function pageDownloader(jobId, cfg) {
     }
     if (stopped) throw new Error('Остановлено');
   };
+  // One paced queue for all API workers; media downloads have their own limits.
+  const apiRate = Math.max(1, Math.min(120, Number(cfg.apiRate) || 60));
+  let apiQueue = Promise.resolve();
+  const waitApiSlot = () => {
+    const slot = apiQueue.then(async () => {
+      await checkpoint();
+      for (;;) {
+        const wait = Math.max(window.__wildlApiNextAt || 0, window.__wildlApiCooldownUntil || 0) - Date.now();
+        if (wait <= 0) break;
+        await sleep(Math.min(250, wait));
+      }
+      await checkpoint();
+      window.__wildlApiNextAt = Date.now() + 60000 / apiRate;
+    });
+    apiQueue = slot.catch(() => {});
+    return slot;
+  };
   const api = 'https://api.cdnlibs.org/api';
   const siteId = Number(cfg.site?.id) || Number(document.documentElement.getAttribute('data-id')) || 3;
   const kind = cfg.site?.kind || (siteId === 3 ? 'novel' : siteId===5?'anime':'manga');
@@ -79,7 +96,7 @@ function pageDownloader(jobId, cfg) {
   async function fetchJson(url) {
     const retries = cfg.inspect?1:3, limitPause = Math.max(1, Number(cfg.limitPause) || 180);
     for (let attempt = 0;; attempt++) {
-      await checkpoint();
+      await waitApiSlot();
       const controller = new AbortController();
       controllers.add(controller);
       const timeout = setTimeout(() => controller.abort(), cfg.inspect?12000:30000);
@@ -111,9 +128,9 @@ function pageDownloader(jobId, cfg) {
         const retry=response.headers.get('Retry-After');
         const retrySeconds=Number(retry)||Math.max(0,(Date.parse(retry)-Date.now())/1000);
         const wait = reset ? Math.max(5, reset - Math.floor(Date.now() / 1000)) : retrySeconds>0?Math.ceil(retrySeconds):limitPause;
+        window.__wildlApiCooldownUntil = Math.max(window.__wildlApiCooldownUntil || 0, Date.now() + wait * 1000);
         post('log', {text: `Лимит API, жду ${wait} сек...`});
         post('progress',{status:`Лимит сайта: ожидание ${wait} сек. Можно остановить.`});
-        await sleep(wait * 1000);
         continue;
       }
       if (!response.ok) throw new Error(`HTTP ${response.status}: ${url}\n${text.slice(0,180)}`);
@@ -279,12 +296,12 @@ function pageDownloader(jobId, cfg) {
         videoPlayer={...player,video:{...player.video,quality:qualities.map(choice=>({...choice,src:choice.src||choice.url||
           (/^(?:https:)?\/\//.test(choice.href)?new URL(choice.href,server.url).href:server.url.replace(/\/+$/,'')+'/'+String(choice.href).replace(/^\/+/,''))}))}};
       } else if(player.video)videoPlayer={...player,video:{...player.video,quality:qualities}};
-      await sendChapter(index,{...chapter,kind,videoPlayer,fallbackPlayer:alternate,quality:Number(cfg.quality)||720,limitPause:cfg.limitPause});
+      await sendChapter(index,{...chapter,kind,videoPlayer,fallbackPlayer:alternate,quality:cfg.quality??'max',limitPause:cfg.limitPause,videoConcurrency:cfg.videoConcurrency??4,videoRanges:cfg.videoRanges!==false,videoContainer:cfg.videoContainer||'mp4',outputFormat:cfg.format||'files'});
       await checkpoint();done++;post('progress',{done,total:picked.length,status:`Скачано серий: ${done}/${picked.length}`});
       if(Number(cfg.pause)>0)await sleep(Number(cfg.pause)*1000);
     }
     if(!done)throw new Error('Нет доступных серий выбранной озвучки.');
-    post('done',{title,slug,kind,total:picked.length,done,skipped:skipped.sort((a,b)=>a.index-b.index),format:'zip'});
+    post('done',{title,slug,kind,total:picked.length,done,skipped:skipped.sort((a,b)=>a.index-b.index),format:cfg.format||'files',videoContainer:cfg.videoContainer||'mp4'});
   }
   async function run() {
     if(kind==='anime')return runAnime();
@@ -297,8 +314,9 @@ function pageDownloader(jobId, cfg) {
     let catalogue=cfg.catalogue||window.__wildlCatalogue;
     if(cfg.forceRefresh||catalogue?.slug!==slug||catalogue?.siteId!==siteId||Date.now()-catalogue.at>300000)catalogue=null;
     if(!catalogue){
+      const metadataFields=kind==='manga'?'&fields[]=summary&fields[]=authors&fields[]=artists&fields[]=genres&fields[]=publisher':'';
       const [bookResponse,listResponse]=await Promise.all([
-        fetchJson(`${api}/manga/${slug}?fields[]=eng_name&fields[]=chap_count`),fetchJson(`${api}/manga/${slug}/chapters`)]);
+        fetchJson(`${api}/manga/${slug}?fields[]=eng_name&fields[]=chap_count${metadataFields}`),fetchJson(`${api}/manga/${slug}/chapters`)]);
       catalogue={slug,siteId,at:Date.now(),book:bookResponse.data||{},raw:Array.isArray(listResponse.data)?listResponse.data.map(compactChapter):listResponse.data};
       window.__wildlCatalogue=catalogue;
     }else post('log',{text:'Использую сохранённый список глав. «Обновить» запрашивает новый.'});
@@ -330,7 +348,12 @@ function pageDownloader(jobId, cfg) {
       });
     chapters.sort((a,b) => Number(a.volume) - Number(b.volume) || Number(a.number) - Number(b.number) || a.index - b.index);
     const title = book.rus_name || book.name || slug;
-    const selection = {catalogue,branches, selectedBranch: branch || '', chapterCount: raw.length, slug, kind, siteName, siteId};
+    const names = value => (Array.isArray(value) ? value : []).map(item => typeof item === 'string' ? item : item?.rus_name || item?.name).filter(Boolean);
+    const description = new DOMParser().parseFromString(typeof book.summary === 'string' ? book.summary : '', 'text/html');
+    for (const node of description.querySelectorAll('script,style')) node.remove();
+    const bookInfo = {summary:description.body.textContent.trim(),writers:names(book.authors),artists:names(book.artists),
+      genres:names(book.genres),publishers:names(Array.isArray(book.publisher)?book.publisher:book.publisher?[book.publisher]:[]),sourceUrl:location.origin+url.pathname};
+    const selection = {catalogue,bookInfo,branches, selectedBranch: branch || '', chapterCount: raw.length, slug, kind, siteName, siteId};
     if (cfg.inspect) { post('preview', {title, total: chapters.length, ...selection, mode: 'PAGE API'}); return; }
     const from = cfg.from === '' || cfg.from == null ? 1 : Number(cfg.from);
     const to = cfg.to === '' || cfg.to == null ? Infinity : Number(cfg.to);
@@ -342,6 +365,7 @@ function pageDownloader(jobId, cfg) {
       const constants = (await fetchJson(`${api}/constants?fields[]=imageServers`)).data;
       imageServers = (constants?.imageServers || []).filter(server =>
         (server.site_ids || []).map(Number).includes(siteId) && ['main','secondary','compress','download'].includes(server.id) && server.url)
+        .sort((a,b)=>cfg.imageMode==='server'?Number(b.id==='compress')-Number(a.id==='compress'):0)
         .map(server => server.url.replace(/\/$/, ''));
       imageServers = [...new Set(imageServers)];
       if (!imageServers.length) throw new Error('Не найден сервер изображений этого сайта.');
@@ -359,6 +383,7 @@ function pageDownloader(jobId, cfg) {
         if(completed.has(index))continue;
         post('progress', {done, total: picked.length, status: `Скачиваю: Том ${chapter.volume} Глава ${chapter.number}`});
         const params = new URLSearchParams({number: chapter.number, volume: chapter.volume});
+        if(kind==='manga'&&cfg.imageMode==='server')params.set('server','compress');
         if (chapter.branch) params.set('branch_id', chapter.branch);
         const data = (await fetchJson(`${api}/manga/${slug}/chapter?${params}`)).data;
         if (branch && data?.id != null && chapter.sourceId != null && String(data.id) !== String(chapter.sourceId))
@@ -382,7 +407,7 @@ function pageDownloader(jobId, cfg) {
             if (!path) throw new Error('Не найден адрес страницы манги.');
             return {urls, number: page.slug};
           });
-          content = {kind, pages, limitPause: Number(cfg.limitPause) || 180};
+          content = {kind, pages, limitPause: Number(cfg.limitPause) || 180,imageConcurrency:Math.max(1,Math.min(6,Number(cfg.imageConcurrency)||3)),imageMode:cfg.imageMode==='webp'?'webp':'original',imageFormat:cfg.imageFormat||'jpg'};
         } else content = {kind, ...chapterContent(data)};
         await sendChapter(index, {...chapter, name: data?.name || chapter.name, ...content});
         await checkpoint();

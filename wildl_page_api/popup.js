@@ -1,8 +1,9 @@
 window.wildlBoot?.started();
 const $ = id => document.getElementById(id);
 const logEl = $('log');
+let userPreferences={};
 let state = {}, pending = false, pendingType = '', branchSignature = '', formatKind = '', settingsSignature='';
-let refreshing=false, connectionError='',rangeSlug='';
+let refreshing=false, connectionError='',rangeSlug='',apiRateState;
 function requestState() {
   return new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>reject(new Error('Фоновый процесс не ответил за 12 секунд. Обновите расширение на browser://extensions.')),12000);
@@ -58,10 +59,11 @@ function setState(st) {
   document.body.dataset.loading=String(['working','inspect','saving'].includes(phase));
   $('phase').textContent=({saving:'Сборка',paused:'Пауза',inspect:'Поиск',working:'Загрузка',recover:'Продолжить',error:'Ошибка',complete:'Готово',ready:'Готово'})[phase];
   if (formatKind !== kind) {
-    $('format').replaceChildren(...(kind === 'anime' ? [new Option('ZIP','zip')] : kind === 'manga' ? [new Option('CBZ', 'cbz'), new Option('ZIP', 'zip'),new Option('CBR','cbr')] :
-      [new Option('EPUB', 'epub'), new Option('TXT', 'txt'),new Option('FB2','fb2'),new Option('PDF','pdf'),new Option('DOCX','docx')]));
+    $('format').replaceChildren(...(kind === 'anime' ? [new Option('Видео без ZIP','files'),new Option('ZIP','zip')] : kind === 'manga' ? [new Option('CBZ', 'cbz'), new Option('ZIP', 'zip'),new Option('CBR','cbr')] :
+      [new Option('EPUB', 'epub'), new Option('TXT', 'txt'),new Option('FB2','fb2'),new Option('PDF','pdf'),new Option('DOCX','docx'),new Option('MOBI','mobi')]));
     const previousFormat=st.running?st.format:st.recovery?.format;
     if(previousFormat&&[...$('format').options].some(option=>option.value===previousFormat))$('format').value=previousFormat;
+    if(!st.cfg&&!st.recovery){$('quality').value='max';$('videoConcurrency').value='4';$('videoRanges').checked=true;applyPreferences(kind);}
     formatKind = kind;
   }
   const siteNames={AnimeLib:'Анимелиб',RanobeLib:'Ранобелиб',MangaLib:'Мангалиб',HentaiLib:'Хентайлиб',SlashLib:'Слешлиб'};
@@ -72,15 +74,19 @@ function setState(st) {
   const signatureSettings=JSON.stringify([st.archiveId,st.cfg,st.checkedRange]);
   const savedSettings=st.cfg||st.checkedRange;
   if(savedSettings&&signatureSettings!==settingsSignature){
-    for(const id of ['from','to','pause','concurrency','limitPause','quality','format'])if(savedSettings[id]!=null)$(id).value=String(savedSettings[id]);
+    for(const id of ['from','to','pause','concurrency','limitPause','apiRate','imageConcurrency','imageMode','imageFormat','videoContainer','videoConcurrency','quality','format'])if(savedSettings[id]!=null)$(id).value=String(savedSettings[id]);
+    if(savedSettings.videoRanges!=null)$('videoRanges').checked=savedSettings.videoRanges;
     settingsSignature=signatureSettings;
   }
   const unit=kind==='anime'?'серий':'глав';
   $('fromLabel').textContent=kind==='anime'?'С серии':'С главы';$('toLabel').textContent=kind==='anime'?'По серию':'По главу';
   document.body.dataset.kind=kind;$('qualityField').hidden=kind!=='anime';$('videoHint').hidden=kind!=='anime';$('translatorLabel').textContent=kind==='anime'?'Озвучка / субтитры':'Переводчик';
-  $('concurrencyField').hidden=kind==='anime';$('intervalLabel').textContent=kind==='anime'?'Между сериями, сек.':'Интервал, сек.';
-  $('settingsHint').textContent=kind==='anime'?'Видео скачивается последовательно. Интервал — пауза между сериями, поиск озвучек он не замедляет. При лимите ждём указанное время или срок сервера.':
-    'Больше потоков может ускорить загрузку, но повышает риск лимита. Интервал — пауза каждого потока между главами. Время ожидания сервера имеет приоритет.';
+  $('videoContainerField').hidden=kind!=='anime';
+  $('videoConcurrencyField').hidden=kind!=='anime';$('videoRangesField').hidden=kind!=='anime';
+  $('concurrencyField').hidden=kind==='anime';for(const id of ['imageConcurrencyField','imageModeField','imageFormatField','imageHint'])$(id).hidden=kind!=='manga';$('intervalLabel').textContent=kind==='anime'?'Между сериями, сек.':'Интервал, сек.';
+  if(st.apiRate!=null&&st.apiRate!==apiRateState){if(!pending&&!savedSettings)$('apiRate').value=String(st.apiRate);apiRateState=st.apiRate;}
+  $('settingsHint').textContent=kind==='anime'?'Серии скачиваются по очереди, их фрагменты — параллельно (рекомендуется 4). При лимите потоков станет меньше. Лимит API регулирует поиск серий и озвучек; интервал — паузу между сериями. Срок ожидания сервера имеет приоритет.':
+    'Лимит API общий для поиска и всех потоков. Интервал — пауза каждого потока между главами. Срок ожидания сервера имеет приоритет.';
   $('qualityInfo').hidden=kind!=='anime';
   $('animeScan').hidden=kind!=='anime';$('scanHint').hidden=kind!=='anime';
   const canScan=kind==='anime'&&!!st.title&&!st.running&&!st.recovery&&!pending&&!connectionError;
@@ -127,7 +133,7 @@ function setState(st) {
     (quality.unknown?` Не проверено: ${quality.unknown} из ${quality.total}; наличие 4K у них неизвестно.`:''):
     selected?'Качество ещё не проверено.':'Выберите озвучку для проверки качества.';
   for(const height of quality?.qualities||[])if(![...$('quality').options].some(option=>Number(option.value)===height))$('quality').append(new Option(height>=2160?height===2160?'4K':height+'p':height+'p',String(height)));
-  for(const option of $('quality').options){option.disabled=!!quality&&!quality.unknown&&!quality.qualities.includes(Number(option.value));}
+  for(const option of $('quality').options){option.disabled=option.value!=='max'&&!!quality&&!quality.unknown&&!quality.qualities.includes(Number(option.value));}
   if(quality&&!quality.unknown&&quality.qualities.length&&!st.running&&!st.recovery&&$('quality').selectedOptions[0]?.disabled){
     const desired=Number($('quality').value),choices=[...$('quality').options].filter(option=>!option.disabled).map(option=>Number(option.value)).sort((a,b)=>b-a);
     if(choices.length)$('quality').value=String(choices.find(value=>value<=desired)||choices.at(-1));
@@ -138,9 +144,12 @@ function setState(st) {
     st.selectedBranch ? 'Только главы выбранного переводчика.' : '«Любой перевод»: главы разных команд.';
   const total = st.total || 0, done = st.done || 0;
   const skipped=st.skipped||0;
-  const percent = total ? Math.min(100, Math.round((done+skipped) * 100 / total)) : 0;
+  const fraction=kind==='anime'&&st.running&&!st.inspecting&&typeof st.videoEta?.progress==='number'&&Number.isFinite(st.videoEta.progress)?Math.max(0,Math.min(1,st.videoEta.progress)):0;
+  const rawPercent=total?(done+skipped+fraction)*100/total:0;
+  const percent=fraction>0?Math.min(99.9,Math.round(rawPercent*10)/10):Math.min(100,Math.round(rawPercent));
   $('count').textContent = st.qualityChecking?'Проверяю разрешения':phase==='inspect' ? kind==='anime'?'Определяю список серий':'Определяю список глав' : `${done.toLocaleString('ru-RU')} / ${total.toLocaleString('ru-RU')} ${unit}${skipped?' · пропущено '+skipped:''}`;
   $('percent').textContent = phase==='error' ? 'ERROR' : percent + '%';
+  $('percent').title=kind==='anime'?'Общий прогресс всех выбранных серий, включая текущую. MP4 — по байтам, HLS — по фрагментам.':'Прогресс выбранных глав';
   $('percent').hidden = phase==='inspect' || (phase==='working' && !total);
   const meterLabel=st.qualityChecking?'КАЧЕСТВО':({inspect:'ПОИСК',working:'ЗАГРУЗКА',saving:'СБОРКА',paused:'ПАУЗА'})[phase] || '';
   $('meterLabel').textContent=meterLabel;
@@ -158,23 +167,36 @@ function setState(st) {
     $('progressBar').removeAttribute('aria-valuetext');
   }
   $('status').textContent = connectionError ? 'Нет связи с фоновым процессом. Нажмите «Обновить» для проверки подключения.' : st.status || 'Готово к скачиванию.';
+  const transfer=st.videoEta;
+  if(kind==='anime'&&st.running&&!st.inspecting&&!connectionError&&transfer&&transfer.phase!=='finishing'){
+    const details=[];
+    if(transfer.totalBytes>0)details.push('Размер: '+(transfer.totalBytes/1048576).toFixed(1)+' МиБ');
+    if(transfer.speedBps>0&&!st.paused&&transfer.phase!=='waiting')details.push((transfer.speedBps/1048576).toFixed(2)+' МиБ/с');
+    if(details.length)$('status').textContent+=' · '+details.join(' · ');
+  }
+  const animateLogo=['working','saving'].includes(phase)&&!st.paused;
+  $('downloadMotion').hidden=!animateLogo;
+  $('appLogo').hidden=animateLogo;
+  $('videoEta').hidden=kind!=='anime'||!st.running||!!st.inspecting||!st.videoEta||!!connectionError;
+  $('videoEtaText').textContent=videoEtaText(st.videoEta,st.paused);
   document.body.dataset.paused = String(!!st.paused);
   $('start').disabled = !!connectionError || busy || (!st.recovery&&(!st.title||!availableCount(st)||st.availabilityDeferred));
-  $('savePartial').hidden=!st.recovery?.done;
+  $('savePartial').hidden=st.recovery?.format==='files'||!st.recovery?.done;
   $('savePartial').disabled=busy||!!connectionError;
   $('savePartial').textContent=st.recovery?`Сохранить скачанное (${st.recovery.done} ${unit})`:'Сохранить скачанное';
   $('pauseJob').disabled = !!connectionError || !st.running || !!st.saving || !!st.starting || pending;
+  $('videoRanges').disabled=busy||!!st.recovery;$('recommended').disabled=busy||!!st.recovery;
   $('stop').disabled = !!connectionError || !(st.running || st.inspecting || st.qualityChecking) || !!st.saving || pending;
   $('refresh').disabled = false;
   $('refresh').classList.remove('is-busy');
   $('refreshLabel').textContent = 'Обновить';
   $('pauseLabel').textContent = st.paused ? 'Продолжить' : 'Пауза';
   $('pauseIcon').innerHTML = st.paused ? '<path d="m8 5 11 7-11 7Z"/>' : '<path d="M8 5v14M16 5v14"/>';
-  for (const id of ['branch','from','to','format','pause','concurrency','limitPause','quality']) {
+  for (const id of ['branch','from','to','format','pause','concurrency','limitPause','apiRate','imageConcurrency','imageMode','imageFormat','videoContainer','videoConcurrency','quality']) {
     const changeDuringScan=kind==='anime'&&(st.inspecting||st.qualityChecking)&&['from','to'].includes(id)&&!pending || st.qualityChecking&&id==='branch'&&!pending;
-    $(id).disabled = !!connectionError || (busy&&!changeDuringScan) || (!!st.recovery&&id!=='format') || (id === 'branch' && !st.title);
+    $(id).disabled = !!connectionError || (busy&&!changeDuringScan) || (!!st.recovery&&id!=='videoContainer'&&(id!=='format'||kind==='anime')) || (id === 'branch' && !st.title);
   }
-  logEl.textContent = (st.log || []).slice(-80).join('\n');
+  logEl.textContent = (st.log || []).slice(-300).join('\n');
   if(!logEl.textContent && pending)logEl.textContent='Ожидаю подтверждение команды '+pendingType+' от фонового процесса…';
   if(connectionError)logEl.textContent+='\n'+connectionError;
   logEl.scrollTop = logEl.scrollHeight;
@@ -197,12 +219,37 @@ async function send(message) {
   } catch (error) { failure = error; }
   finally { pending = false; pendingType = ''; setState(state); if (failure) showError(failure); }
 }
-function config() {
-  return {branchId: $('branch').value, from: $('from').value, to: $('to').value,
-    pause: Math.max(0, Number($('pause').value) || 0), concurrency: Math.max(1, Math.min(6, Number($('concurrency').value) || 2)),
-    limitPause: Math.max(30, Number($('limitPause').value) || 180),quality:Number($('quality').value)||720, format: $('format').value};
+function videoEtaText(eta,paused=false,now=Date.now()) {
+  const prefix=eta?.series?`Серия ${eta.series} · `:'';
+  if(paused)return prefix+'Таймер на паузе';
+  if(eta?.phase==='waiting')return prefix+'Оценка после перерыва';
+  if(eta?.phase==='saving')return prefix+'Сохраняю файл…';
+  if(eta?.phase==='finishing')return prefix+'Завершаю серию…';
+  if(eta?.phase!=='estimate'||!Number.isFinite(eta.seconds)||now-eta.at>5000)return prefix+'Оцениваю время…';
+  const seconds=Math.max(1,Math.ceil(eta.seconds-Math.max(0,(now-eta.at)/1000)));
+  const hours=Math.floor(seconds/3600),minutes=Math.floor(seconds%3600/60),rest=seconds%60;
+  return prefix+'Осталось ≈ '+(hours?`${hours} ч ${minutes} мин`:minutes?`${minutes} мин ${rest} с`:`${rest} с`);
 }
-$('start').onclick = () => send(state.recovery?{type:'CONTINUE',format:$('format').value}:{type: 'START', cfg: config()});
+function config() {
+  return {imageConcurrency:Math.max(1,Math.min(6,Number($('imageConcurrency').value)||3)),imageMode:$('imageMode').value,imageFormat:$('imageFormat').value,videoContainer:$('videoContainer').value,branchId: $('branch').value, from: $('from').value, to: $('to').value,
+    pause: Math.max(0, Number($('pause').value) || 0), concurrency: Math.max(1, Math.min(6, Number($('concurrency').value) || 2)),
+    limitPause: Math.max(30, Number($('limitPause').value) || 180),apiRate:Math.max(1,Math.min(120,Number($('apiRate').value)||60)),videoConcurrency:Math.max(1,Math.min(6,Number($('videoConcurrency').value)||4)),videoRanges:$('videoRanges').checked,quality:$('quality').value==='max'?'max':Number($('quality').value)||720, format: $('format').value};
+}
+const preferenceFields=['pause','concurrency','limitPause','apiRate','imageConcurrency','imageMode','imageFormat','videoContainer','videoConcurrency','quality','format'];
+function applyPreferences(kind){const preferences={pause:0,concurrency:2,limitPause:180,apiRate:60,imageConcurrency:3,imageMode:'original',imageFormat:'jpg',videoContainer:'mp4',videoConcurrency:4,quality:'max',format:kind==='anime'?'files':kind==='manga'?'cbz':'epub',videoRanges:true,...userPreferences[kind]};
+  for(const id of preferenceFields)if(preferences[id]!=null&&(!$(id).options||[...$(id).options].some(option=>option.value===String(preferences[id]))))$(id).value=String(preferences[id]);
+  if(preferences.videoRanges!=null)$('videoRanges').checked=preferences.videoRanges;
+}
+function persistPreferences(){const kind=state.kind||'novel';
+  userPreferences[kind]=Object.fromEntries(preferenceFields.map(id=>[id,$(id).value]));userPreferences[kind].videoRanges=$('videoRanges').checked;
+  chrome.storage?.local?.set({wildlPreferences:userPreferences,wildlApiRate:Math.max(1,Math.min(120,Number($('apiRate').value)||60))}).catch(()=>{});
+}
+for(const id of [...preferenceFields,'videoRanges'])$(id).addEventListener('change',persistPreferences);
+$('recommended').onclick=()=>{
+  for(const [id,value] of Object.entries({pause:0,concurrency:2,limitPause:180,apiRate:60,imageConcurrency:3,imageMode:'original',imageFormat:'jpg',videoContainer:'mp4',videoConcurrency:4,quality:'max'}))$(id).value=String(value);
+  $('videoRanges').checked=true;$('format').value=state.kind==='anime'?'files':state.kind==='manga'?'cbz':'epub';persistPreferences();
+};
+$('start').onclick = () => send(state.recovery?{type:'CONTINUE',format:$('format').value,videoContainer:$('videoContainer').value}:{type: 'START', cfg: config()});
 $('newTitle').onclick=()=>send({type:'NEW_TITLE'});
 $('scanRange').onclick=()=>send({type:'INSPECT',cfg:{...config(),scanRange:true}});
 $('checkQuality').onclick=()=>send({type:'CHECK_QUALITY'});
@@ -218,7 +265,7 @@ $('stop').onclick = () => send({type: 'STOP'});
 $('savePartial').onclick = () => send({type:'SAVE_PARTIAL',format:$('format').value});
 function renderUpdates(info){
   if(!info||typeof info.installedVersion!=='string')return;
-  $('installedVersion').textContent='Версия '+info.installedVersion;
+  $('installedVersion').textContent='Версия '+(chrome.runtime.getManifest?.()?.version_name||info.installedVersion);
   $('updateBanner').hidden=!info.available;
   $('updateTitle').textContent=info.available?'Доступна версия '+info.latestVersion:'';
   // Only navigate to our own releases, even if cached data is malformed.
@@ -259,6 +306,7 @@ async function inspectIfNeeded() {
   if (!pending && !state.running && !state.inspecting && !state.recovery) await send({type: 'AUTO_INSPECT'});
 }
 async function initialize() {
+  if(chrome.storage?.local)try{userPreferences=(await chrome.storage.local.get('wildlPreferences')).wildlPreferences||{};}catch{}
   if(await refresh())await inspectIfNeeded();
 }
 initialize();

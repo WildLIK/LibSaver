@@ -5,7 +5,7 @@
   <div class="error-frame" aria-hidden="true"></div>
   <div class="app">
     <header class="topbar">
-      <div class="brand"><img class="logo" src="icons/logo.svg" alt=""><h1>WildL <span>Downloader</span></h1></div>
+      <div class="brand"><span class="logo" aria-hidden="true"><img id="appLogo" src="icons/download-idle.png" width="32" height="32" alt=""><img id="downloadMotion" src="icons/download-loading.gif" width="32" height="32" alt="" hidden></span><h1>WildL <span>Downloader</span></h1></div>
       <button id="refresh" class="refresh" title="Перезапустить расширение. Скачанные главы и серии сохранятся для продолжения."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17"/></svg><span id="refreshLabel">Обновить</span></button>
       <div class="header-meta"><span id="siteLabel">Сайт не определен</span><span class="site-support">Поддержка сайтов группы Lib</span></div>
     </header>
@@ -23,7 +23,7 @@
           <div><label id="fromLabel" for="from">С главы</label><input id="from" type="number" min="0" step="any" value="1"></div>
           <div><label id="toLabel" for="to">По главу</label><input id="to" type="number" min="0" step="any" placeholder="До конца"></div>
           <div><label for="format">Формат</label><select id="format"><option value="epub">EPUB</option><option value="txt">TXT</option></select></div>
-        <div id="qualityField" class="video-quality" hidden><label for="quality">Качество</label><select id="quality" title="4K — 2160p. Если нужного качества нет, используется доступное ниже."><option value="720">720p</option><option value="480">480p</option><option value="360">360p</option><option value="1080">1080p</option><option value="2160">4K</option></select></div>
+        <div id="qualityField" class="video-quality" hidden><label for="quality">Качество</label><select id="quality" title="Максимальное — лучшее доступное для каждой серии. 4K — 2160p. Если нужного качества нет, используется доступное ниже."><option value="max">Максимальное</option><option value="720">720p</option><option value="480">480p</option><option value="360">360p</option><option value="1080">1080p</option><option value="2160">4K</option></select></div>
         </div>
         <div id="animeScan" class="scan-actions" hidden>
           <button id="scanRange" type="button">Сканировать диапазон</button>
@@ -34,34 +34,50 @@
       </section>
       <details class="panel settings">
         <summary><span>Настройки загрузки</span><span class="chevron" aria-hidden="true">⌄</span></summary>
-        <p id="videoHint" class="hint video-hint" hidden>Видео в ZIP до 4 ГБ. TS можно открыть в VLC. Если нужного качества нет, выбирается доступное ниже.</p>
+        <p id="videoHint" class="hint video-hint" hidden>По умолчанию: отдельные MP4 и максимальное качество каждой серии. Поддерживаемый HLS перепаковывается в MP4 без потери качества. ZIP ограничен 4 ГБ.</p>
         <div class="settings-grid">
           <div id="concurrencyField"><label for="concurrency">Глав одновременно</label><input id="concurrency" type="number" min="1" max="6" value="2"></div>
           <div><label id="intervalLabel" for="pause">Интервал, сек.</label><input id="pause" type="number" min="0" step="any" value="0"></div>
-          <div class="full"><label for="limitPause">Ожидание при лимите API, сек.</label><input id="limitPause" type="number" min="30" value="180"></div>
+          <div><label for="apiRate">Запросов API в минуту</label><input id="apiRate" type="number" min="1" max="120" value="60"></div>
+          <div><label for="limitPause">Ожидание при лимите, сек.</label><input id="limitPause" type="number" min="30" value="180"></div>
+          <div id="videoContainerField" hidden><label for="videoContainer">Контейнер видео</label><select id="videoContainer"><option value="mp4">Единый MP4</option><option value="original">Исходный MP4 / TS</option></select></div>
+          <div id="videoConcurrencyField" hidden><label for="videoConcurrency">Фрагментов видео одновременно</label><input id="videoConcurrency" type="number" min="1" max="6" value="4"></div>
+          <label id="videoRangesField" class="hint full save-choice" hidden><input id="videoRanges" type="checkbox" checked> Скачивать MP4 по частям, если сервер поддерживает</label>
+          <div id="imageConcurrencyField" hidden><label for="imageConcurrency">Страниц одновременно</label><input id="imageConcurrency" type="number" min="1" max="6" value="3"></div>
+          <div id="imageFormatField" hidden><label for="imageFormat">Формат всех страниц</label><select id="imageFormat"><option value="jpg">JPG · высокое качество</option><option value="png">PNG · без дополнительных потерь</option><option value="webp">WebP</option><option value="original">Исходные · могут отличаться</option></select></div>
+          <div id="imageModeField" hidden><label for="imageMode">Размер страниц</label><select id="imageMode"><option value="original">Исходные</option><option value="server">Сжатые с сайта</option></select></div>
+          <p id="imageHint" class="hint full" hidden>JPG по умолчанию: готовые JPEG сохраняются как есть, остальные страницы преобразуются с качеством 95%. PNG — без дополнительных потерь, обычно больше. Формат меняется после скачивания и не уменьшает трафик; прозрачность JPG заменяется белым фоном.</p>
+          <button id="recommended" class="full" type="button">Рекомендуемые настройки</button>
           <p id="settingsHint" class="hint full">Больше потоков может ускорить загрузку, но повышает риск лимита. Интервал — пауза каждого потока между главами. Время ожидания сервера имеет приоритет.</p>
+          <div class="full"><label for="downloadFolder">Подпапка в Загрузках</label><input id="downloadFolder" type="text" value="LibSaver" placeholder="LibSaver"></div>
+          <label class="hint full save-choice"><input id="askSave" type="checkbox"> Спрашивать место сохранения</label>
+          <p id="saveSettingsStatus" class="hint full">Базовую папку загрузок можно изменить в настройках браузера.</p>
           <details class="about full"><summary>О проекте и обновлениях<span class="chevron" aria-hidden="true">⌄</span></summary>
-            <div class="about-content"><div class="update-tools"><span id="installedVersion">Версия 2.2</span><button id="checkUpdates" type="button">Проверить обновления</button></div>
+            <div class="about-content"><div class="update-tools"><span id="installedVersion">Версия 2.3</span><button id="checkUpdates" type="button">Проверить обновления</button></div>
             <p id="updateStatus" class="hint">Новые выпуски проверяются раз в сутки.</p>
             <p class="hint"><a href="https://github.com/WildLIK/LibSaver" target="_blank" rel="noopener noreferrer">GitHub: LibSaver</a> · Для уведомлений о выпусках включите Watch → Custom → Releases.</p>
             <p class="disclaimer">Проект не связан с администрацией AnimeLib, MangaLib и RanobeLib. Все права на контент принадлежат правообладателям. Расширение предназначено только для личного офлайн-доступа. Пользователь самостоятельно несёт ответственность за соблюдение авторских прав и правил площадок.</p>
             </div>
           </details>
+      <details class="history-panel full"><summary>История загрузок<span class="chevron" aria-hidden="true">⌄</span></summary><div class="history-tools"><span>Последние 100 сохранений</span><button id="clearHistory" type="button">Очистить</button></div><div id="historyList"><p class="hint">Загрузок пока нет.</p></div></details>
         </div>
       </details>
+
+      <details class="log-panel"><summary>Журнал работы<span class="chevron" aria-hidden="true">⌄</span></summary><pre id="log"></pre></details>
+
+    </main>
+    <footer class="actions">
       <section class="progress" aria-label="Прогресс скачивания">
         <div class="progress-readout">
-          <div class="meter"><div class="meter-text"><span id="meterLabel" hidden></span><strong id="percent">0%</strong></div></div>
+          <div class="meter"><span class="meter-wave" aria-hidden="true"></span><div class="meter-text"><span id="meterLabel" hidden></span><strong id="percent">0%</strong></div></div>
           <div class="progress-copy">
             <div class="progress-heading"><span id="count">0 / 0 глав</span><span class="activity" aria-hidden="true"><i></i><i></i><i></i><i></i></span></div>
             <p id="status" role="status" aria-live="polite">Готово к скачиванию.</p>
+            <p id="videoEta" class="video-eta" hidden title="Примерное время загрузки текущей серии. Оценка меняется вместе со скоростью сервера."><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span id="videoEtaText"></span></p>
           </div>
         </div>
         <div id="progressBar" class="track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="bar"></div></div>
       </section>
-      <details class="log-panel"><summary>Журнал работы<span class="chevron" aria-hidden="true">⌄</span></summary><pre id="log"></pre></details>
-    </main>
-    <footer class="actions">
       <button id="savePartial" class="action recover" hidden>Сохранить скачанное</button>
       <button id="start" class="action primary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg><span id="startLabel">Скачать</span></button>
       <button id="newTitle" class="action new-title" hidden>Начать другую загрузку</button>
@@ -71,5 +87,5 @@
       </div>
     </footer>
   </div>
-  <script src="popup-bootstrap.js"></script><script src="popup.js"></script>
+  <script src="compat.js"></script><script src="popup-bootstrap.js"></script><script src="popup.js"></script><script src="popup-library.js"></script>
 </body></html>

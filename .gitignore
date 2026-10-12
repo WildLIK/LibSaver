@@ -9,14 +9,31 @@
 !wildl_page_api/**
 !scripts/
 !scripts/test.cjs
+!scripts/build-test.cjs
 !tests/
 !tests/content-lifecycle.cjs
 !tests/quality-summary.cjs
 !tests/video.cjs
+!tests/video-transfer.cjs
+!tests/video-eta.cjs
+!tests/video-remux.cjs
+!tests/fixtures/
+!tests/fixtures/**
 !tests/updates.cjs
 !tests/anime-reload.cjs
 !tests/popup-ui.cjs
 !tests/popup-startup.cjs
+!tests/api-rate.cjs
+!tests/comic-info.cjs
+!tests/library.cjs
+!tests/optimized-files.cjs
+!tests/image-workers.cjs
+!tests/default-folder.cjs
+!docs/BENCHMARK.md
+!docs/
+!docs/COMPARISON.md
+!docs/RELEASE-2.3.md
+!docs/FIREFOX.md
 
 # Never publish build keys, packages, credentials or installed dependencies.
 *.pem

@@ -53,7 +53,7 @@ function makeDocx(title,chapters,note='') {
     {name:'word/footer1.xml',data:`<?xml version="1.0" encoding="UTF-8"?><w:ftr xmlns:w="${ns}"><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:fldSimple w:instr="PAGE"><w:r><w:t>1</w:t></w:r></w:fldSimple></w:p></w:ftr>`},
     {name:'word/document.xml',data:`<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="${ns}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${body}<w:sectPr><w:footerReference w:type="default" r:id="footer"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567"/></w:sectPr></w:body></w:document>`}
   ];
-  return zip(files,'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+  return zipCompact(files,'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 }
 let pdfFontBytes;
 async function makePdf(title,chapters,note='') {

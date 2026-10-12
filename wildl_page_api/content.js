@@ -1,3 +1,4 @@
+if(typeof browser!=='undefined')globalThis.chrome=browser;
 // Bridge in the isolated extension world; downloader is launched in MAIN.
 (() => {
   if(typeof window.__wildlBridgeInstalled==='function')window.__wildlBridgeInstalled();

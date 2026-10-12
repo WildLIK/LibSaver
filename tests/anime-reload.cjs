@@ -8,7 +8,7 @@ const root=path.resolve(__dirname,'../wildl_page_api'),tmp=fs.mkdtempSync(path.j
  fs.writeFileSync(path.join(tmp,'profile','Default','Preferences'),JSON.stringify({extensions:{ui:{developer_mode:true}}}));
  browser=await chromium.launchPersistentContext(path.join(tmp,'profile'),{executablePath:chromium.executablePath(),headless:true,acceptDownloads:true,downloadsPath:downloads,args:['--enable-unsafe-extension-debugging'],ignoreDefaultArgs:['--disable-extensions']});
  await browser.route('https://v5.animelib.org/**',route=>route.fulfill({body:'<html data-id="5"></html>'}));
- await browser.route('https://api.github.com/repos/WildLIK/LibSaver/releases/latest',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({tag_name:'v2.2'}),headers:{'Access-Control-Allow-Origin':'*'}}));
+ await browser.route('https://api.github.com/repos/WildLIK/LibSaver/releases/latest',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({tag_name:'v2.3'}),headers:{'Access-Control-Allow-Origin':'*'}}));
  await browser.route('https://api.cdnlibs.org/**',route=>{
   const u=new URL(route.request().url());let data;
   if(u.pathname.endsWith('/constants'))data={videoServers:[{id:'main',url:'https://video1.cdnlibs.org/.аs/'}]};
@@ -54,6 +54,7 @@ const root=path.resolve(__dirname,'../wildl_page_api'),tmp=fs.mkdtempSync(path.j
  assert.equal(await popup.evaluate(()=>episodeRanges([{season:1,number:1},{season:1,number:2},{season:1,number:4},{season:2,number:1},{season:2,number:2}])),'сезон 1: 1–2, 4; сезон 2: 1–2');
  assert.equal(await popup.evaluate(()=>episodeRanges([{season:2,number:1},{season:2,number:2},{season:10000,number:1,episodeKind:'recap',groupLabel:'Рекап'},{season:10000,number:2,episodeKind:'recap',groupLabel:'Рекап'}])),'сезон 2: 1–2; рекапы: 1–2');
  assert.equal(await popup.evaluate(()=>episodeRanges([{season:10000,number:1,episodeKind:'recap'}])),'рекапы: 1');
+ await popup.selectOption('#format','zip');await popup.locator('.settings > summary').click();await popup.uncheck('#videoRanges');await popup.locator('.settings > summary').click();
  await popup.selectOption('#branch','1:2:Animelib');await popup.locator('.settings > summary').click();await popup.fill('#pause','5');await popup.locator('.settings > summary').click();
  await popup.click('#start');await popup.waitForFunction(()=>document.querySelector('#count').textContent.startsWith('1 /'),null,{timeout:12000}).catch(async error=>{console.log(await popup.locator('#status').textContent(),await popup.locator('#log').textContent());console.log(await worker.evaluate(()=>publicState()));throw error;});
  assert(await popup.locator('#refresh').isEnabled());assert.equal(await popup.locator('#newTitle').textContent(),'Начать другую загрузку');
@@ -62,12 +63,12 @@ const root=path.resolve(__dirname,'../wildl_page_api'),tmp=fs.mkdtempSync(path.j
  await worker.evaluate(async()=>{
    await (updateRequest||Promise.resolve());await chrome.storage.local.remove('wildlUpdates');
    const original=globalThis.fetch;
-   globalThis.fetch=(url,options)=>url===UPDATE_API?Promise.resolve(new Response(JSON.stringify({tag_name:'v2.3'}),{headers:{'Content-Type':'application/json'}})):original(url,options);
+   globalThis.fetch=(url,options)=>url===UPDATE_API?Promise.resolve(new Response(JSON.stringify({tag_name:'v2.4'}),{headers:{'Content-Type':'application/json'}})):original(url,options);
    await checkForUpdates(true);globalThis.fetch=original;
  });
  await popup.waitForFunction(()=>!document.querySelector('#updateBanner').hidden);
  assert(await worker.evaluate(()=>state.running),'Release notice must not interrupt a download');
- assert.equal(await popup.locator('#updateDownload').getAttribute('href'),'https://github.com/WildLIK/LibSaver/releases/tag/v2.3');
+ assert.equal(await popup.locator('#updateDownload').getAttribute('href'),'https://github.com/WildLIK/LibSaver/releases/tag/v2.4');
  await worker.evaluate(async()=>{await chrome.storage.local.remove('wildlUpdates');await checkForUpdates(true);});
  await popup.waitForFunction(()=>document.querySelector('#updateBanner').hidden);
  await book.evaluate(()=>{history.pushState({},'',location.pathname+'?episode=2');const frame=document.createElement('iframe');frame.src='https://v5.animelib.org/player-test';document.body.append(frame);});
@@ -97,6 +98,14 @@ const root=path.resolve(__dirname,'../wildl_page_api'),tmp=fs.mkdtempSync(path.j
  assert(mediaRequests.some(url=>url==='https://p14.solodcdn.com/movie/2.mp4'),'Failed Animelib source must use Kodik with the same JAM voice');
  assert.equal(mediaRequests.filter(url=>url.endsWith('/1.mp4')).length,1,'Episode 1 must not be downloaded twice after reload');
  const file=(await worker.evaluate(()=>chrome.downloads.search({orderBy:['-startTime'],limit:1})))[0];assert.equal(file.state,'complete');
+ const library=await worker.evaluate(()=>getLibrary());assert.equal(library.settings.ask,false);assert.equal(library.history[0].status,'complete');
+ assert.equal(library.history[0].done,5);assert.equal(library.history[0].filename,file.filename);assert.equal(library.settings.folder,'LibSaver');
+ // Playwright intercepts downloads and flattens their destination. The default
+ // browser directory is checked separately without download interception.
+ await popup.locator('.settings > summary').click();await popup.locator('.history-panel > summary').click();
+ await popup.waitForFunction(()=>document.querySelector('#historyList').textContent.includes('Сохранено'));
+ assert(await popup.locator('#historyList').textContent().then(text=>text.includes('ZIP')));
+ await popup.locator('.settings > summary').click();
  fs.copyFileSync(file.filename,path.resolve(__dirname,'../diagnostics/exports/anime-reload.zip'));
  await popup.click('#newTitle');await popup.waitForFunction(()=>!document.querySelector('#branch').disabled);
  assert.equal(await popup.locator('#startLabel').textContent(),'Скачать серии');
@@ -135,6 +144,18 @@ const root=path.resolve(__dirname,'../wildl_page_api'),tmp=fs.mkdtempSync(path.j
  assert(!(await popup.locator('#log').textContent()).includes("reading 'id'"),'Single-episode film must not access a second scan row');
  await popup.click('#start');await popup.waitForFunction(()=>document.querySelector('#status').textContent==='Файл сохранён.',null,{timeout:10000});
  assert.equal(await worker.evaluate(()=>state.done),1,'Single-episode film downloads successfully');
+ // Recommended direct-file mode uses the real Downloads API and waits for completion.
+ await popup.locator('.settings > summary').click();await popup.click('#recommended');await popup.locator('.settings > summary').click();
+ assert.equal(await popup.locator('#format').inputValue(),'files');assert.equal(await popup.locator('#quality').inputValue(),'max');
+ await popup.click('#start');await popup.waitForFunction(()=>document.querySelector('#status').textContent.startsWith('Сохранено 1 из 1'),null,{timeout:10000});
+ const directFile=(await worker.evaluate(()=>chrome.downloads.search({orderBy:['-startTime'],limit:1})))[0];
+ assert.equal(directFile.state,'complete'); // Playwright can flatten the actual destination to a UUID.
+ assert.equal(fs.readFileSync(directFile.filename).subarray(4,8).toString(),'ftyp');
+ const directHistory=await worker.evaluate(()=>getLibrary());assert.equal(directHistory.history[0].format,'mp4');assert.equal(directHistory.history[0].status,'complete');
+ const clean=await worker.evaluate(()=>chrome.runtime.sendMessage({target:'wildl-export',type:'INDICES',jobId:state.archiveId}));
+ assert.equal((await worker.evaluate(()=>chrome.storage.local.get('wildlPreferences'))).wildlPreferences.anime.quality,'max');
+ console.log('PASS direct video: recommended max quality and four workers, separate MP4 via native Downloads, exact bytes and completed history.');
+
  await book.goto('https://v5.animelib.org/ru/anime/88--long-series');
  // Leave an active bridge, invalidate it without PREPARE_RELOAD, then send an orphan event.
  await worker.evaluate(()=>start({scanAll:true},true));

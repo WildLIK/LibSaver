@@ -1,4 +1,14 @@
 const IMAGE_REQUEST_RULE_ID = 12000;
+let firefoxRequestOrigin='';
+const firefoxHeaders=typeof browser!=='undefined'&&typeof document!=='undefined'&&!!chrome.webRequest;
+if(firefoxHeaders)chrome.webRequest.onBeforeSendHeaders.addListener(details=>{
+  const extensionBase=chrome.runtime.getURL('');
+  if(!firefoxRequestOrigin||![details.originUrl,details.documentUrl].some(url=>url?.startsWith(extensionBase)))return {};
+  const host=new URL(details.url).hostname;
+  if(['api.cdnlibs.org','cover.cdnlibs.org'].includes(host))return {};
+  const referer=['solodcdn.com','kodik-cdn.com','kodikcdn.com'].some(domain=>host===domain||host.endsWith('.'+domain))?'https://kodikplayer.com/':firefoxRequestOrigin+'/';
+  return {requestHeaders:[...(details.requestHeaders||[]).filter(header=>header.name.toLowerCase()!=='referer'),{name:'Referer',value:referer}]};
+},{urls:['https://*.imglib.info/*','https://*.cdnlibs.org/*','https://*.hentaicdn.org/*','https://*.kodikplayer.com/*','https://*.kodik.info/*','https://*.kodikvideo.com/*','https://*.solodcdn.com/*','https://*.kodik-cdn.com/*','https://*.kodikcdn.com/*'],types:['xmlhttprequest']},['blocking','requestHeaders']);
 function imageRequestRule(siteOrigin, extensionId) {
   const source = new URL(siteOrigin);
   if (!getLibSite(source.href) || source.protocol !== 'https:')
@@ -18,12 +28,14 @@ function imageRequestRule(siteOrigin, extensionId) {
   };
 }
 async function setImageRequestHeaders(siteOrigin) {
+  if(firefoxHeaders){imageRequestRule(siteOrigin,chrome.runtime.id);firefoxRequestOrigin=siteOrigin;return;}
   await chrome.declarativeNetRequest.updateSessionRules({
     removeRuleIds: [IMAGE_REQUEST_RULE_ID,12001,12002],
     addRules: [imageRequestRule(siteOrigin, chrome.runtime.id)]
   });
 }
 async function clearImageRequestHeaders() {
+  if(firefoxHeaders){firefoxRequestOrigin='';return;}
   try {
     await chrome.declarativeNetRequest.updateSessionRules({removeRuleIds: [IMAGE_REQUEST_RULE_ID,12001,12002]});
   } catch {
@@ -33,6 +45,7 @@ async function clearImageRequestHeaders() {
 }
 
 async function setVideoRequestHeaders(siteOrigin){
+  if(firefoxHeaders){await setImageRequestHeaders(siteOrigin);return;}
   await clearImageRequestHeaders();
   await chrome.declarativeNetRequest.updateSessionRules({addRules:[
     imageRequestRule(siteOrigin,chrome.runtime.id),

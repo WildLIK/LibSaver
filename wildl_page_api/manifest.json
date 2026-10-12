@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
   "name": "WildL Downloader",
-  "version": "2.2",
+  "version": "2.3",
+  "version_name": "2.3",
   "minimum_chrome_version": "116",
   "description": "Загружает любимые произведения: новеллы, манги и аниме с сайтов группы Lib",
   "homepage_url": "https://github.com/WildLIK/LibSaver",

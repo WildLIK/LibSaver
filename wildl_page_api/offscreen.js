@@ -8,7 +8,7 @@ async function loadJob(id) {
   const job=getJob(id);
   if(!job.loaded)job.loaded=checkpointRead(id).then(rows=>{
     for(const row of rows)job.chapters[row.index]=row.chapter;
-    job.bytes=job.chapters.filter(Boolean).reduce((sum,chapter)=>sum+(chapter.files||[]).reduce((n,file)=>n+file.data.length,0),0);
+    job.bytes=job.chapters.filter(chapter=>chapter&&chapter.outputFormat!=='files').reduce((sum,chapter)=>sum+(chapter.files||[]).reduce((n,file)=>n+videoSize(file.data),0),0);
   });
   await job.loaded;return job;
 }
@@ -43,8 +43,8 @@ function allowedImageUrl(value) {
     throw new Error('Сервер изображения не поддерживается: ' + url.hostname);
   return url.href;
 }
-function imageProgress(message, status) {
-  chrome.runtime.sendMessage({type: 'IMAGE_PROGRESS', jobId: message.runId || message.jobId, status}).catch(() => {});
+function imageProgress(message, status, videoEta=null) {
+  chrome.runtime.sendMessage({type: 'IMAGE_PROGRESS', jobId: message.runId || message.jobId, status,videoEta}).catch(() => {});
 }
 async function downloadImage(message, job, page) {
   let lastError = new Error('Нет адреса изображения.');
@@ -88,38 +88,50 @@ async function downloadImage(message, job, page) {
   }
   throw new Error(`Том ${message.chapter.volume} Глава ${message.chapter.number} · Страница ${page.number}: ${lastError.message}`);
 }
+function mediaLog(message,text){try{Promise.resolve(chrome.runtime.sendMessage({type:"MEDIA_LOG",jobId:message.runId||message.jobId,text})).catch(()=>{});}catch{}}
 async function storeChapter(message) {
+  const started=Date.now();
   const existed = jobs.has(message.jobId);
   const job = await loadJob(message.jobId), chapter = message.chapter;
   if (!existed) job.paused = !!message.paused;
   await imageCheckpoint(job);
-  if (job.chapters[message.index]) throw new Error('Глава уже сохранена в этом задании.');
+  if (job.chapters[message.index]) {if(chapter.kind==='anime'&&chapter.outputFormat==='files'){const cached=job.chapters[message.index];if(chapter.videoContainer==='mp4'&&cached.files?.[0]?.name.endsWith('.ts')){const blob=await videoRemuxTs([cached.files[0].data],message,job);cached.files=[{name:'Серия '+chapter.number+'.mp4',data:blob}];cached.videoContainer='mp4';await checkpointWrite(message.jobId,message.index,cached);}return {ok:true};}throw new Error('Глава уже сохранена в этом задании.');}
   if (chapter.kind === 'anime') {
     let file;
     try{file=await downloadVideo(message,job);}
     catch(error){
-      if(job.stopped||!chapter.fallbackPlayer)throw error;
+      if(job.stopped||error.noFallback||!chapter.fallbackPlayer)throw error;
+      videoLog(message,`${chapter.videoPlayer.player}: ${error.message}. Переключаюсь на Kodik с той же озвучкой.`);
       imageProgress(message,`Серия ${chapter.number} · ${chapter.videoPlayer.player}: ${error.message}. Та же озвучка через Kodik…`);
       file=await downloadVideo({...message,chapter:{...chapter,videoPlayer:chapter.fallbackPlayer,fallbackPlayer:null}},job);
     }
     await imageCheckpoint(job);
-    job.chapters[message.index]={...chapter,files:[file]};
+    if(chapter.outputFormat!=='files')job.bytes+=videoSize(file.data);
+    job.chapters[message.index]={...chapter,files:[file],...(chapter.outputFormat==='files'?{delivered:false}:{})};
   } else if (chapter.kind === 'manga') {
-    const files = [];
-    for (let index = 0; index < chapter.pages.length; index++) {
-      imageProgress(message, `Том ${chapter.volume} · Глава ${chapter.number} · Страница ${index + 1}/${chapter.pages.length}`);
-      const image = await downloadImage(message, job, chapter.pages[index]);
-      if (job.bytes + image.bytes.length > 0xf0000000)
-        throw new Error('Архив превышает 4 ГБ. Уменьшите диапазон глав.');
-      job.bytes += image.bytes.length;
-      files.push({name: `${String(index + 1).padStart(4,'0')}.${image.extension}`, data: image.bytes});
-    }
+    const files = new Array(chapter.pages.length);let next=0,done=0,failed=false,converted=0;
+    async function imageWorker(){while(!failed&&next<chapter.pages.length){await imageCheckpoint(job);const index=next++;if(index>=chapter.pages.length)return;
+      for(;;){await imageCheckpoint(job);if(failed)return;if((job.imageActive||0)<6){job.imageActive=(job.imageActive||0)+1;break;}await imageSleep(job,25);}
+      try{let image=await downloadImage(message,job,chapter.pages[index]);
+        const imageFormat=chapter.imageFormat||'original';
+        if(imageFormat!=='original'){if(image.extension!==imageFormat)converted++;image=await formatImage(image,imageFormat);}else if(chapter.imageMode==='webp')image=await compactImage(image);
+        await imageCheckpoint(job);files[index]={name:`${String(index+1).padStart(4,'0')}.${image.extension}`,data:image.bytes};done++;
+        imageProgress(message,`Том ${chapter.volume} · Глава ${chapter.number} · Страниц ${done}/${chapter.pages.length}`);
+      }catch(error){failed=true;throw error;}finally{job.imageActive--;}
+    }}
+    const tasks=Array.from({length:Math.min(chapter.pages.length,Math.max(1,Math.min(6,Number(chapter.imageConcurrency)||3)))},imageWorker);
+    const settled=await Promise.allSettled(tasks),failure=settled.find(item=>item.status==='rejected');if(failure)throw failure.reason;
     await imageCheckpoint(job);
+    const bytes=files.reduce((sum,file)=>sum+videoSize(file.data),0);
+    if(job.bytes+bytes>0xf0000000)throw new Error('Архив превышает 4 ГБ. Уменьшите диапазон глав.');
+    job.bytes+=bytes;
     job.chapters[message.index] = {...chapter, files};
+    mediaLog(message,`Том ${chapter.volume} Глава ${chapter.number}: ${files.length} страниц, формат ${[...new Set(files.map(file=>file.name.split('.').at(-1).toUpperCase()))].join('/')}; преобразовано ${converted}; ${(bytes/1048576).toFixed(1)} МиБ за ${Math.ceil((Date.now()-started)/1000)} сек.`);
   } else job.chapters[message.index] = chapter;
   await imageCheckpoint(job);
   try {await checkpointWrite(message.jobId,message.index,job.chapters[message.index]);}
-  catch(error){delete job.chapters[message.index];throw new Error("Не удалось сохранить главу на диск: "+error.message);}
+  catch(error){if(chapter.outputFormat!=='files')job.bytes-=(job.chapters[message.index]?.files||[]).reduce((sum,file)=>sum+videoSize(file.data),0);delete job.chapters[message.index];throw new Error("Не удалось сохранить главу на диск: "+error.message);}
+  if(chapter.kind==='anime')await videoCacheDelete(message.jobId,message.index);
   return {ok: true};
 }
 async function exportJob(data) {
@@ -140,6 +152,7 @@ async function exportJob(data) {
   let blob, extension;
   if (data.kind === 'manga' || data.kind === 'anime') {
     const files = [];
+    if(data.kind==='anime'&&data.videoContainer==='mp4')for(let index=0;index<chapters.length;index++){const chapter=chapters[index];if(!chapter)continue;for(const file of chapter.files||[])if(file.name.endsWith('.ts')){const blob=await videoRemuxTs([file.data],{jobId:data.jobId,runId:data.runId,chapter},job);file.name=file.name.replace(/\.ts$/,'.mp4');file.data=new Uint8Array(await blob.arrayBuffer());await checkpointWrite(data.jobId,index,chapter);}}
     const usedNames=new Set();
     chapters.forEach((chapter, index) => {
       if(data.kind==='anime') {
@@ -162,6 +175,7 @@ async function exportJob(data) {
       for (const file of chapter.files || []) files.push({name: `${folder}/${file.name}`, data: file.data});
     });
     if (!files.length) throw new Error(data.kind==='anime'?'В архиве нет видео серий.':'В архиве нет страниц манги.');
+    if(data.kind==='manga')files.push({name:'ComicInfo.xml',data:makeComicInfo(title,complete,files.length,data.bookInfo||{})});
     if(note)files.push({name:'_Пропущенные_главы.txt',data:note});
     extension = data.kind==='anime' || data.format === 'zip' ? 'zip' : data.format==='cbr'?'cbr':'cbz';
     blob = extension==='cbr'?makeCbr(files):zip(files, extension === 'cbz' ? 'application/vnd.comicbook+zip' : 'application/zip');
@@ -170,27 +184,40 @@ async function exportJob(data) {
     switch(extension){
       case 'txt':blob=new Blob([(note?note+'\n\n\n':'')+complete.map(chapter=>
         `${title}\n\n${`Том ${chapter.volume} Глава ${chapter.number}${chapter.name?" - "+chapter.name:""}`}\n\n${chapter.text}`).join('\n\n\n')],{type:'text/plain;charset=utf-8'});break;
-      case 'epub':blob=makeEpub(title,complete,note);break;
+      case 'epub':blob=await makeEpub(title,complete,note);break;
       case 'fb2':blob=makeFb2(title,complete,note);break;
       case 'pdf':blob=await makePdf(title,complete,note);break;
-      case 'docx':blob=makeDocx(title,complete,note);break;
+      case 'docx':blob=await makeDocx(title,complete,note);break;
+      case 'mobi':blob=makeMobi(title,complete,note);break;
       default:throw new Error('Не поддерживается формат книги: '+extension);
     }
   }
   const url = URL.createObjectURL(blob);
   retained.add(url);
   const suffix = data.partial ? ' - частично' : skipped.length ? ' - доступные главы' : '';
-  return {url, filename: safe(title) + suffix + '.' + extension};
+  return {url, filename: safe(title) + suffix + '.' + extension,bytes:blob.size};
+}
+async function exportEpisode(message){
+  const job=await loadJob(message.jobId),chapter=job.chapters[message.index];
+  if(!chapter||chapter.outputFormat!=='files')throw new Error('Серия не готова к сохранению.');
+  if(message.type==='VIDEO_DOWNLOAD_ID'){chapter.downloadId=message.downloadId;await checkpointWrite(message.jobId,message.index,chapter);return {ok:true};}
+  if(message.type==='VIDEO_SAVED'){chapter.delivered=true;chapter.files=[];await checkpointWrite(message.jobId,message.index,chapter);return {ok:true};}
+  const file=chapter.files?.[0];if(!file)throw new Error('Нет файла серии.');
+  const ext=file.name.endsWith('.mp4')?'mp4':'ts';
+  const blob=file.data instanceof Blob?file.data:new Blob([file.data],{type:ext==='mp4'?'video/mp4':'video/mp2t'});
+  const url=URL.createObjectURL(blob);retained.add(url);
+  return {url,filename:`${safe(message.title)}. ${safe(String(chapter.number))}${message.seasonSuffix?' (сезон '+safe(String(chapter.volume))+')':''}.${ext}`,bytes:blob.size,downloadId:chapter.downloadId};
 }
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (message.target !== 'wildl-export') return;
+  if(['EXPORT_EPISODE','VIDEO_SAVED','VIDEO_DOWNLOAD_ID'].includes(message.type)){exportEpisode(message).then(respond).catch(error=>respond({error:error.message}));return true;}
   if (message.type === 'CHAPTER') {
     const job=getJob(message.jobId);
     const task=storeChapter(message);job.pending.add(task);
     task.then(respond).catch(error=>respond({ok:false,error:error.message})).finally(()=>job.pending.delete(task));
     return true;
   }
-  if (message.type === 'CONTROL') { getJob(message.jobId).paused = !!message.paused; respond({ok: true}); }
+  if (message.type === 'CONTROL') {const job=getJob(message.jobId);job.paused=!!message.paused;if(job.paused)videoEtaHold(job);else if(!(job.videoCooldownUntil>Date.now()))videoEtaRelease(job);respond({ok:true});}
   if (['COMMIT','DISCARD','CANCEL_KEEP','RESET','INDICES'].includes(message.type)) {
     (async()=>{
       const job=await loadJob(message.jobId);
@@ -198,9 +225,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         job.stopped=true;job.paused=false;for(const controller of job.controllers)controller.abort();
         await Promise.allSettled([...job.pending]);
       }
-      if(['COMMIT','DISCARD'].includes(message.type)){await checkpointDelete(message.jobId);jobs.delete(message.jobId);return {ok:true};}
-      if(message.type==='RESET'){job.stopped=false;job.paused=false;job.bytes=job.chapters.filter(Boolean).reduce((sum,chapter)=>sum+(chapter.files||[]).reduce((n,file)=>n+file.data.length,0),0);}
-      return {ok:true,indices:job.chapters.map((chapter,index)=>chapter?index:null).filter(index=>index!==null)};
+      if(['COMMIT','DISCARD'].includes(message.type)){await checkpointDelete(message.jobId);await videoCacheDelete(message.jobId);jobs.delete(message.jobId);return {ok:true};}
+      if(message.type==='RESET'){job.stopped=false;job.paused=false;job.bytes=job.chapters.filter(chapter=>chapter&&chapter.outputFormat!=='files').reduce((sum,chapter)=>sum+(chapter.files||[]).reduce((n,file)=>n+videoSize(file.data),0),0);}
+      return {ok:true,indices:job.chapters.map((chapter,index)=>chapter&&chapter.delivered!==false?index:null).filter(index=>index!==null)};
     })().then(respond).catch(error=>respond({ok:false,error:error.message}));return true;
   }
   if (message.type === 'RELEASE') {
