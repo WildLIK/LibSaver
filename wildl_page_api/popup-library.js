@@ -3,7 +3,7 @@ function librarySize(bytes){return bytes>=1048576?(bytes/1048576).toFixed(1)+' �
 async function refreshLibrary(){
   try{
     const data=await chrome.runtime.sendMessage({type:'GET_LIBRARY'});if(!data?.settings)return;
-    if(!saveSettingsLoaded){$('downloadFolder').value=data.settings.folder;$('askSave').checked=data.settings.ask;saveSettingsLoaded=true;}
+    if(!saveSettingsLoaded){$('downloadFolder').value=data.settings.folder;$('autoSave').checked=!data.settings.ask;saveSettingsLoaded=true;renderSaveLocation(data.settings);}
     const list=$('historyList');list.replaceChildren();
     if(!data.history?.length){const p=document.createElement('p');p.className='hint';p.textContent='Загрузок пока нет.';list.append(p);return;}
     for(const item of data.history){
@@ -21,12 +21,17 @@ async function refreshLibrary(){
   }catch{}
 }
 async function storeSaveSettings(){
-  try{const data=await chrome.runtime.sendMessage({type:'SAVE_LIBRARY_SETTINGS',settings:{folder:$('downloadFolder').value,ask:$('askSave').checked}});
+  try{const data=await chrome.runtime.sendMessage({type:'SAVE_LIBRARY_SETTINGS',settings:{folder:$('downloadFolder').value,ask:!$('autoSave').checked}});
     if(data?.error)throw new Error(data.error);
-    if(data?.settings){$('downloadFolder').value=data.settings.folder;$('saveSettingsStatus').textContent=data.settings.ask?'Будет открываться диалог сохранения.':'Сохраняем в Загрузки'+(data.settings.folder?'/'+data.settings.folder:'')+'.';}}
+    if(data?.settings){$('downloadFolder').value=data.settings.folder;renderSaveLocation(data.settings);}}
   catch(error){$('saveSettingsStatus').textContent=error.message;}
 }
-$('downloadFolder').onchange=storeSaveSettings;$('askSave').onchange=storeSaveSettings;
+function renderSaveLocation(settings){$('saveSettingsStatus').textContent=settings.ask?'Перед каждым файлом будет открываться выбор места.':'Без запросов: папка загрузок браузера'+(settings.folder?' / '+settings.folder:'')+'.';}
+$('downloadFolder').onchange=storeSaveSettings;$('autoSave').onchange=storeSaveSettings;
+if(/Firefox\//i.test(navigator.userAgent))$('openDownloadSettings').textContent='Как выбрать папку в Firefox';
+$('openDownloadSettings').onclick=async()=>{try{const result=await chrome.runtime.sendMessage({type:'OPEN_DOWNLOAD_SETTINGS'});if(result?.error)throw new Error(result.error);
+  if(result?.manual)$('saveSettingsStatus').textContent='Firefox: откройте Настройки → Основные → Файлы и приложения. Выберите «Сохранять файлы в» и нужную папку. Адрес настроек: about:preferences#general.';
+}catch(error){$('saveSettingsStatus').textContent=error.message;}};
 $('clearHistory').onclick=async()=>{await chrome.runtime.sendMessage({type:'CLEAR_HISTORY'});await refreshLibrary();};
 chrome.runtime.onMessage.addListener(message=>{if(message.type==='LIBRARY_CHANGED')refreshLibrary();});
 refreshLibrary();

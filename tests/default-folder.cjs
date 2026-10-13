@@ -3,7 +3,7 @@ const root=path.resolve(__dirname,'../wildl_page_api'),temp=fs.mkdtempSync(path.
 (async()=>{let browser;try{
  const downloads=path.join(temp,'downloads'),profile=path.join(temp,'profile');fs.mkdirSync(downloads);fs.mkdirSync(path.join(profile,'Default'),{recursive:true});
  fs.writeFileSync(path.join(profile,'Default','Preferences'),JSON.stringify({download:{default_directory:downloads,prompt_for_download:false}}));
- browser=await chromium.launchPersistentContext(profile,{executablePath:chromium.executablePath(),headless:true,acceptDownloads:false,args:['--enable-unsafe-extension-debugging'],ignoreDefaultArgs:['--disable-extensions']});
+ browser=await chromium.launchPersistentContext(profile,{executablePath:process.env.WILDL_CHROME||chromium.executablePath(),headless:true,acceptDownloads:false,args:['--enable-unsafe-extension-debugging'],ignoreDefaultArgs:['--disable-extensions']});
  const cdp=await browser.browser().newBrowserCDPSession();await cdp.send('Browser.setDownloadBehavior',{behavior:'default',eventsEnabled:true});
  const manager=await browser.newPage();await manager.goto('chrome://extensions');await manager.evaluate(()=>new Promise(resolve=>chrome.developerPrivate.updateProfileConfiguration({inDeveloperMode:true},resolve)));
  await cdp.send('Extensions.loadUnpacked',{path:root});const worker=browser.serviceWorkers()[0]||await browser.waitForEvent('serviceworker');

@@ -34,6 +34,7 @@
 !tests/media-files.cjs
 !tests/mirrors.cjs
 !tests/mirror-ui.cjs
+!tests/save-location.cjs
 !docs/MIRRORS.md
 !docs/BENCHMARK.md
 !docs/

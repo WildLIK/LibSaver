@@ -1,9 +1,14 @@
 const HISTORY_KEY='wildlHistory',SAVE_SETTINGS_KEY='wildlSaveSettings';
 let libraryQueue=Promise.resolve();
+function downloadSettingsUrl(userAgent=''){
+  if(/Firefox\//i.test(userAgent))return 'about:preferences#general';
+  if(/YaBrowser\//i.test(userAgent))return 'chrome://settings/tools';
+  return 'chrome://settings/downloads';
+}
 function normalizeSaveSettings(value={}) {
   const folder=String(value.folder??'WildLib').trim().replace(/\\/g,'/').replace(/\/{2,}/g,'/');
   if(folder.startsWith('/')||/[:*?"<>|\x00-\x1f]/.test(folder)||folder.split('/').some(part=>part==='.'||part==='..'||part.endsWith('.')||part.endsWith(' ')))
-    throw new Error('Укажите подпапку внутри Загрузок, например WildLib. Абсолютный путь и «..» не поддерживаются.');
+    throw new Error('Диск и базовую папку выберите кнопкой «Папка загрузок браузера». Здесь укажите только подпапку, например WildLib, или оставьте поле пустым.');
   return {folder:folder.replace(/\/+$/,''),ask:!!value.ask};
 }
 async function getLibrary(){

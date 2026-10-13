@@ -4,6 +4,9 @@ const context=vm.createContext({chrome,Date});vm.runInContext(fs.readFileSync(pa
 (async()=>{
  assert.equal((await vm.runInContext('getLibrary()',context)).settings.ask,false);
  assert.equal((await vm.runInContext('getLibrary()',context)).settings.folder,'WildLib');
+ assert.equal(vm.runInContext("downloadSettingsUrl('Mozilla/5.0 Chrome/151.0')",context),'chrome://settings/downloads');
+ assert.equal(vm.runInContext("downloadSettingsUrl('Mozilla/5.0 YaBrowser/26.8')",context),'chrome://settings/tools');
+ assert.equal(vm.runInContext("downloadSettingsUrl('Mozilla/5.0 Firefox/145.0')",context),'about:preferences#general');
  for(const folder of ['../x','C:\\x','/root','folder/../x','bad?name'])assert.throws(()=>vm.runInContext('normalizeSaveSettings('+JSON.stringify({folder})+')',context));
  await vm.runInContext("saveLibrarySettings({folder:'WildLib/Anime',ask:true})",context);assert.equal(store.wildlSaveSettings.folder,'WildLib/Anime');
  await Promise.all(Array.from({length:105},(_,id)=>vm.runInContext('addHistory('+JSON.stringify({id,title:'Тайтл '+id,bytes:100})+')',context)));

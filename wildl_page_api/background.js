@@ -434,6 +434,12 @@ async function dispatch(message, sender) {
   return null;
 }
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if(message.type==='OPEN_DOWNLOAD_SETTINGS'){
+    if(sender.url!==chrome.runtime.getURL('popup.html')){respond({error:'Откройте настройки из окна расширения.'});return;}
+    const url=downloadSettingsUrl(navigator.userAgent);
+    if(url.startsWith('about:')){respond({ok:true,manual:true,settingsUrl:url});return;}
+    chrome.tabs.create({url}).then(()=>respond({ok:true})).catch(error=>respond({error:error.message}));return true;
+  }
   if(['GET_MIRRORS','CHECK_MIRRORS','ENABLE_MIRROR','REMOVE_MIRROR','SET_MIRROR_AUTO'].includes(message.type)){
     if(sender.url!==chrome.runtime.getURL('popup.html')){respond({error:'Настройки зеркал доступны только из окна расширения.'});return;}
     (async()=>{
