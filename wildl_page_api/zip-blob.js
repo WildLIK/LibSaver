@@ -1,5 +1,6 @@
-// Stored ZIP for video: preserve Blob backing storage and read only small CRC chunks.
-// No whole-episode or whole-archive ArrayBuffer is needed during assembly.
+// Stored ZIP for video: reference immutable OPFS Files and small ZIP headers.
+// The default path creates no intermediate archive; CRC reads are capped at 4 MiB.
+// An optional sink remains available for callers that need a standalone file.
 async function zipBlob(files,mime='application/zip',onProgress=()=>{},sink=null){
   if(files.length>65535)throw new Error('Слишком много файлов для одного архива.');
   const entries=files.map(file=>({name:enc(file.name),blob:file.data instanceof Blob?file.data:new Blob([typeof file.data==='string'?enc(file.data):file.data])}));

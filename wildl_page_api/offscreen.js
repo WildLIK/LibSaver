@@ -191,13 +191,12 @@ async function exportJob(data) {
     if(data.kind==='anime'){
       let lastProgress=0;
       const videoBytes=files.reduce((sum,file)=>sum+(file.data.size||0),0),gib=bytes=>(bytes/1073741824).toFixed(2);
-      chrome.runtime.sendMessage({type:'MEDIA_LOG',jobId:data.runId||data.jobId,text:`Архив: около ${gib(videoBytes)} ГиБ. Помимо сохранённых серий нужны временный ZIP и итоговый файл: ещё около ${gib(videoBytes*2)} ГиБ, если профиль и загрузки на одном диске. «По одному файлу» расходует меньше места.`}).catch(()=>{});
-      // A previous browser shutdown can leave an unreferenced temporary ZIP.
-      // Source episodes and checkpoints live in a different directory.
+      chrome.runtime.sendMessage({type:'MEDIA_LOG',jobId:data.runId||data.jobId,text:`Архив: около ${gib(videoBytes)} ГиБ. Использую сохранённые серии без отдельной временной копии ZIP. Нужны место для итогового файла и запас браузера.`}).catch(()=>{});
+      // Drop only an unreferenced ZIP from the old export strategy. Source
+      // episodes remain untouched until the native download confirms completion.
       if(![...retainedArchiveFiles.values()].some(file=>file?.job==='archive-'+data.jobId))await mediaDeleteJob('archive-'+data.jobId);
-      const output=await mediaOutput('archive-'+data.jobId,'application/zip');
-      try{blob=await zipBlob(files,'application/zip',progress=>{if(Date.now()-lastProgress<500&&progress.index<progress.total)return;lastProgress=Date.now();
-        imageProgress({jobId:data.jobId,runId:data.runId},`Собираю архив: ${progress.index}/${progress.total} файлов · ${(progress.bytes/1048576).toFixed(1)} МиБ`);},output);}catch(error){await output.abort();throw error;}
+      blob=await zipBlob(files,'application/zip',progress=>{if(Date.now()-lastProgress<500&&progress.index<progress.total)return;lastProgress=Date.now();
+        imageProgress({jobId:data.jobId,runId:data.runId},`Подготавливаю архив: ${progress.index}/${progress.total} файлов · ${(progress.bytes/1048576).toFixed(1)} МиБ`);});
     }else blob = extension==='cbr'?makeCbr(files):zip(files, extension === 'cbz' ? 'application/vnd.comicbook+zip' : 'application/zip');
   } else {
     extension=data.format||'epub';
@@ -214,7 +213,7 @@ async function exportJob(data) {
   }
   const url = URL.createObjectURL(blob);
   retained.add(url);
-  if(data.kind==='anime')retainedArchiveFiles.set(url,mediaReferences.get(blob));
+  if(data.kind==='anime'&&mediaReferences.has(blob))retainedArchiveFiles.set(url,mediaReferences.get(blob));
   const suffix = data.partial ? ' - частично' : skipped.length ? ' - доступные главы' : '';
   return {url, filename: safe(title) + suffix + '.' + extension,bytes:blob.size};
 }
