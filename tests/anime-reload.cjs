@@ -8,7 +8,7 @@ const root=path.resolve(__dirname,'../wildl_page_api'),tmp=fs.mkdtempSync(path.j
  fs.writeFileSync(path.join(tmp,'profile','Default','Preferences'),JSON.stringify({extensions:{ui:{developer_mode:true}}}));
  browser=await chromium.launchPersistentContext(path.join(tmp,'profile'),{executablePath:chromium.executablePath(),headless:true,acceptDownloads:true,downloadsPath:downloads,args:['--enable-unsafe-extension-debugging'],ignoreDefaultArgs:['--disable-extensions']});
  await browser.route('https://v5.animelib.org/**',route=>route.fulfill({body:'<html data-id="5"></html>'}));
- await browser.route('https://api.github.com/repos/WildLIK/WildLib/releases/latest',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({tag_name:'v2.3'}),headers:{'Access-Control-Allow-Origin':'*'}}));
+ await browser.route('https://api.github.com/repos/WildLIK/WildLib/releases/latest',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({tag_name:'v2.4'}),headers:{'Access-Control-Allow-Origin':'*'}}));
  await browser.route('https://api.cdnlibs.org/**',route=>{
   const u=new URL(route.request().url());let data;
   if(u.pathname.endsWith('/constants'))data={videoServers:[{id:'main',url:'https://video1.cdnlibs.org/.аs/'}]};
@@ -63,12 +63,12 @@ const root=path.resolve(__dirname,'../wildl_page_api'),tmp=fs.mkdtempSync(path.j
  await worker.evaluate(async()=>{
    await (updateRequest||Promise.resolve());await chrome.storage.local.remove('wildlUpdates');
    const original=globalThis.fetch;
-   globalThis.fetch=(url,options)=>url===UPDATE_API?Promise.resolve(new Response(JSON.stringify({tag_name:'v2.4'}),{headers:{'Content-Type':'application/json'}})):original(url,options);
+   globalThis.fetch=(url,options)=>url===UPDATE_API?Promise.resolve(new Response(JSON.stringify({tag_name:'v2.5'}),{headers:{'Content-Type':'application/json'}})):original(url,options);
    await checkForUpdates(true);globalThis.fetch=original;
  });
  await popup.waitForFunction(()=>!document.querySelector('#updateBanner').hidden);
  assert(await worker.evaluate(()=>state.running),'Release notice must not interrupt a download');
- assert.equal(await popup.locator('#updateDownload').getAttribute('href'),'https://github.com/WildLIK/WildLib/releases/tag/v2.4');
+ assert.equal(await popup.locator('#updateDownload').getAttribute('href'),'https://github.com/WildLIK/WildLib/releases/tag/v2.5');
  await worker.evaluate(async()=>{await chrome.storage.local.remove('wildlUpdates');await checkForUpdates(true);});
  await popup.waitForFunction(()=>document.querySelector('#updateBanner').hidden);
  await book.evaluate(()=>{history.pushState({},'',location.pathname+'?episode=2');const frame=document.createElement('iframe');frame.src='https://v5.animelib.org/player-test';document.body.append(frame);});

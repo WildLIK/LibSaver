@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "WildLib",
-  "version": "2.3",
-  "version_name": "2.3",
+  "version": "2.4",
+  "version_name": "2.4",
   "minimum_chrome_version": "116",
   "description": "Загружает любимые произведения: новеллы, манги и аниме с сайтов группы Lib",
   "homepage_url": "https://github.com/WildLIK/WildLib",

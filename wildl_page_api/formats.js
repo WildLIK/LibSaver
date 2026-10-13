@@ -31,7 +31,7 @@ function makeFb2(title,chapters,note='') {
   const sections=chapters.map((chapter,index)=>`<section id="chapter${index+1}"><title><p>${xmlText(chapterLabel(chapter))}</p></title>${bookBlocks(chapter)
     .map(block=>`<p>${block.heading?'<strong>':''}${block.runs.map(inline).join('')}${block.heading?'</strong>':''}</p>`).join('')}</section>`).join('');
   const day=new Date().toISOString().slice(0,10);
-  const content=`<?xml version="1.0" encoding="UTF-8"?><FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink"><description><title-info><genre>other</genre><author><nickname>Автор не указан</nickname></author><book-title>${xmlText(title)}</book-title>${note?`<annotation>${note.split('\n').map(line=>`<p>${xmlText(line)}</p>`).join('')}</annotation>`:''}<lang>ru</lang></title-info><document-info><author><nickname>WildLib</nickname></author><program-used>WildLib 2.3</program-used><date value="${day}">${day}</date><id>wildl-${crypto.randomUUID()}</id><version>1.0</version></document-info></description><body><title><p>${xmlText(title)}</p></title>${sections}</body></FictionBook>`;
+  const content=`<?xml version="1.0" encoding="UTF-8"?><FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink"><description><title-info><genre>other</genre><author><nickname>Автор не указан</nickname></author><book-title>${xmlText(title)}</book-title>${note?`<annotation>${note.split('\n').map(line=>`<p>${xmlText(line)}</p>`).join('')}</annotation>`:''}<lang>ru</lang></title-info><document-info><author><nickname>WildLib</nickname></author><program-used>WildLib 2.4</program-used><date value="${day}">${day}</date><id>wildl-${crypto.randomUUID()}</id><version>1.0</version></document-info></description><body><title><p>${xmlText(title)}</p></title>${sections}</body></FictionBook>`;
   return new Blob([content],{type:'application/x-fictionbook+xml;charset=utf-8'});
 }
 function makeDocx(title,chapters,note='') {
@@ -63,7 +63,7 @@ async function makePdf(title,chapters,note='') {
   const characters=new Set(font.getCharacterSet());
   const unsupported=[...new Set([...title+note+chapters.map(chapter=>chapterLabel(chapter)+chapter.text).join('')].filter(char=>!/[\s]/.test(char)&&!characters.has(char.codePointAt(0))))];
   if(unsupported.length)throw new Error('Шрифт PDF не поддерживает символы: '+unsupported.slice(0,8).join(' ')+' . Выберите FB2 или DOCX для сохранения полного текста.');
-  doc.setTitle(title);doc.setCreator('WildLib 2.3');doc.setLanguage('ru-RU');
+  doc.setTitle(title);doc.setCreator('WildLib 2.4');doc.setLanguage('ru-RU');
   const width=595.28,height=841.89,margin=54,lineWidth=width-2*margin;let page,y;
   function newPage(){page=doc.addPage([width,height]);y=height-margin;}
   function wrap(text,size){const lines=[];let line='';for(const word of text.trim().split(/\s+/u)){
