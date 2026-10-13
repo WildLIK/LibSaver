@@ -3,9 +3,9 @@ const store={};const chrome={storage:{local:{get:async key=>Array.isArray(key)?O
 const context=vm.createContext({chrome,Date});vm.runInContext(fs.readFileSync(path.resolve(__dirname,'../wildl_page_api/library.js'),'utf8'),context);
 (async()=>{
  assert.equal((await vm.runInContext('getLibrary()',context)).settings.ask,false);
- assert.equal((await vm.runInContext('getLibrary()',context)).settings.folder,'LibSaver');
+ assert.equal((await vm.runInContext('getLibrary()',context)).settings.folder,'WildLib');
  for(const folder of ['../x','C:\\x','/root','folder/../x','bad?name'])assert.throws(()=>vm.runInContext('normalizeSaveSettings('+JSON.stringify({folder})+')',context));
- await vm.runInContext("saveLibrarySettings({folder:'LibSaver/Anime',ask:true})",context);assert.equal(store.wildlSaveSettings.folder,'LibSaver/Anime');
+ await vm.runInContext("saveLibrarySettings({folder:'WildLib/Anime',ask:true})",context);assert.equal(store.wildlSaveSettings.folder,'WildLib/Anime');
  await Promise.all(Array.from({length:105},(_,id)=>vm.runInContext('addHistory('+JSON.stringify({id,title:'Тайтл '+id,bytes:100})+')',context)));
  assert.equal(store.wildlHistory.length,100);assert.equal(new Set(store.wildlHistory.map(item=>item.id)).size,100);
  await vm.runInContext("finishHistory(104,'complete',{bytes:1000,filename:'saved.mobi'})",context);assert.equal(store.wildlHistory[0].status,'complete');assert.equal(store.wildlHistory[0].bytes,1000);

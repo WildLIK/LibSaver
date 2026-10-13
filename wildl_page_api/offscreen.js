@@ -1,4 +1,5 @@
 const retained = new Set();
+const retainedArchiveFiles=new Map();
 const jobs = new Map();
 function getJob(id) {
   if (!jobs.has(id)) jobs.set(id, {chapters: [], paused: false, stopped: false, controllers: new Set(), pending: new Set(), bytes: 0});
@@ -6,11 +7,18 @@ function getJob(id) {
 }
 async function loadJob(id) {
   const job=getJob(id);
-  if(!job.loaded)job.loaded=checkpointRead(id).then(rows=>{
+  if(!job.loaded)job.loaded=(typeof checkpointReadMedia==='function'?checkpointReadMedia(id):checkpointRead(id)).then(rows=>{
     for(const row of rows)job.chapters[row.index]=row.chapter;
-    job.bytes=job.chapters.filter(chapter=>chapter&&chapter.outputFormat!=='files').reduce((sum,chapter)=>sum+(chapter.files||[]).reduce((n,file)=>n+videoSize(file.data),0),0);
+    job.bytes=job.chapters.filter(chapter=>chapter&&!chapter.mediaError&&chapter.outputFormat!=='files').reduce((sum,chapter)=>sum+(chapter.files||[]).reduce((n,file)=>n+videoSize(file.data),0),0);
   });
   await job.loaded;return job;
+}
+async function checkStoredMedia(job){
+  for(const chapter of job.chapters)if(chapter?.kind==='anime'){
+    delete chapter.mediaError;
+    try{for(const file of chapter.files||[]){const data=await mediaFile(file.data);await data.slice(0,1).arrayBuffer();if(data.size>1)await data.slice(-1).arrayBuffer();}}
+    catch(error){chapter.mediaError=error.message;}
+  }
 }
 async function imageCheckpoint(job) {
   while (job.paused && !job.stopped) await new Promise(resolve => setTimeout(resolve, 100));
@@ -95,7 +103,8 @@ async function storeChapter(message) {
   const job = await loadJob(message.jobId), chapter = message.chapter;
   if (!existed) job.paused = !!message.paused;
   await imageCheckpoint(job);
-  if (job.chapters[message.index]) {if(chapter.kind==='anime'&&chapter.outputFormat==='files'){const cached=job.chapters[message.index];if(chapter.videoContainer==='mp4'&&cached.files?.[0]?.name.endsWith('.ts')){const blob=await videoRemuxTs([cached.files[0].data],message,job);cached.files=[{name:'Серия '+chapter.number+'.mp4',data:blob}];cached.videoContainer='mp4';await checkpointWrite(message.jobId,message.index,cached);}return {ok:true};}throw new Error('Глава уже сохранена в этом задании.');}
+  if(job.chapters[message.index]?.mediaError)delete job.chapters[message.index];
+  if (job.chapters[message.index]) {if(chapter.kind==='anime'&&chapter.outputFormat==='files'){const cached=job.chapters[message.index];if(chapter.videoContainer==='mp4'&&cached.files?.[0]?.name.endsWith('.ts')){const blob=await videoRemuxTs([await mediaFile(cached.files[0].data)],message,job);cached.files=[{name:'Серия '+chapter.number+'.mp4',data:blob}];cached.videoContainer='mp4';job.chapters[message.index]=await checkpointWrite(message.jobId,message.index,cached);}return {ok:true};}throw new Error('Глава уже сохранена в этом задании.');}
   if (chapter.kind === 'anime') {
     let file;
     try{file=await downloadVideo(message,job);}
@@ -129,8 +138,8 @@ async function storeChapter(message) {
     mediaLog(message,`Том ${chapter.volume} Глава ${chapter.number}: ${files.length} страниц, формат ${[...new Set(files.map(file=>file.name.split('.').at(-1).toUpperCase()))].join('/')}; преобразовано ${converted}; ${(bytes/1048576).toFixed(1)} МиБ за ${Math.ceil((Date.now()-started)/1000)} сек.`);
   } else job.chapters[message.index] = chapter;
   await imageCheckpoint(job);
-  try {await checkpointWrite(message.jobId,message.index,job.chapters[message.index]);}
-  catch(error){if(chapter.outputFormat!=='files')job.bytes-=(job.chapters[message.index]?.files||[]).reduce((sum,file)=>sum+videoSize(file.data),0);delete job.chapters[message.index];throw new Error("Не удалось сохранить главу на диск: "+error.message);}
+  try {job.chapters[message.index]=await checkpointWrite(message.jobId,message.index,job.chapters[message.index]);}
+  catch(error){if(chapter.outputFormat!=='files')job.bytes-=(job.chapters[message.index]?.files||[]).reduce((sum,file)=>sum+videoSize(file.data),0);delete job.chapters[message.index];throw new Error('Не удалось сохранить '+(chapter.kind==='anime'?'серию':'главу')+' в хранилище браузера: '+error.message);}
   if(chapter.kind==='anime')await videoCacheDelete(message.jobId,message.index);
   return {ok: true};
 }
@@ -138,6 +147,7 @@ async function exportJob(data) {
   const job = await loadJob(data.jobId), chapters = job?.chapters || [], title = data.title || data.slug || 'book';
   const skipped = data.skipped || [];
   const complete = chapters.filter(Boolean);
+  const damaged=complete.find(chapter=>chapter.mediaError);if(damaged)throw new Error('Серия '+damaged.number+': '+damaged.mediaError);
   if (complete.length !== data.total - skipped.length || !complete.length || !data.total)
     throw new Error('Не все главы переданы для сборки файла. Повторите скачивание.');
   for(let index=0;index<data.total;index++) if(!chapters[index]&&!skipped.some(item=>item.index===index))
@@ -152,9 +162,9 @@ async function exportJob(data) {
   let blob, extension;
   if (data.kind === 'manga' || data.kind === 'anime') {
     const files = [];
-    if(data.kind==='anime'&&data.videoContainer==='mp4')for(let index=0;index<chapters.length;index++){const chapter=chapters[index];if(!chapter)continue;for(const file of chapter.files||[])if(file.name.endsWith('.ts')){const blob=await videoRemuxTs([file.data],{jobId:data.jobId,runId:data.runId,chapter},job);file.name=file.name.replace(/\.ts$/,'.mp4');file.data=new Uint8Array(await blob.arrayBuffer());await checkpointWrite(data.jobId,index,chapter);}}
+    if(data.kind==='anime'&&data.videoContainer==='mp4')for(let index=0;index<chapters.length;index++){const chapter=chapters[index];if(!chapter)continue;for(const file of chapter.files||[])if(file.name.endsWith('.ts')){const blob=await videoRemuxTs([await mediaFile(file.data)],{jobId:data.jobId,runId:data.runId,chapter},job);file.name=file.name.replace(/\.ts$/,'.mp4');file.data=blob;job.chapters[index]=await checkpointWrite(data.jobId,index,chapter);}}
     const usedNames=new Set();
-    chapters.forEach((chapter, index) => {
+    for(let index=0;index<chapters.length;index++){const chapter=chapters[index];if(!chapter)continue;
       if(data.kind==='anime') {
         for(const file of chapter.files || []) {
           const videoExtension=file.name.match(/\.(ts|mp4)$/i)?.[1].toLowerCase();
@@ -167,18 +177,28 @@ async function exportJob(data) {
             for(let duplicate=2;usedNames.has(name.toLowerCase());duplicate++)name=`${alternate} (${duplicate}).${videoExtension}`;
           }
           usedNames.add(name.toLowerCase());
-          files.push({name,data:file.data});
+          files.push({name,data:await mediaFile(file.data)});
         }
-        return;
+        continue;
       }
       const folder = `${String(index + 1).padStart(5,'0')} - ${safe(`${part} ${chapter.volume} ${entry} ${chapter.number}${chapter.name ? ' - ' + chapter.name : ''}`)}`;
       for (const file of chapter.files || []) files.push({name: `${folder}/${file.name}`, data: file.data});
-    });
+    }
     if (!files.length) throw new Error(data.kind==='anime'?'В архиве нет видео серий.':'В архиве нет страниц манги.');
     if(data.kind==='manga')files.push({name:'ComicInfo.xml',data:makeComicInfo(title,complete,files.length,data.bookInfo||{})});
     if(note)files.push({name:'_Пропущенные_главы.txt',data:note});
     extension = data.kind==='anime' || data.format === 'zip' ? 'zip' : data.format==='cbr'?'cbr':'cbz';
-    blob = extension==='cbr'?makeCbr(files):zip(files, extension === 'cbz' ? 'application/vnd.comicbook+zip' : 'application/zip');
+    if(data.kind==='anime'){
+      let lastProgress=0;
+      const videoBytes=files.reduce((sum,file)=>sum+(file.data.size||0),0),gib=bytes=>(bytes/1073741824).toFixed(2);
+      chrome.runtime.sendMessage({type:'MEDIA_LOG',jobId:data.runId||data.jobId,text:`Архив: около ${gib(videoBytes)} ГиБ. Помимо сохранённых серий нужны временный ZIP и итоговый файл: ещё около ${gib(videoBytes*2)} ГиБ, если профиль и загрузки на одном диске. «По одному файлу» расходует меньше места.`}).catch(()=>{});
+      // A previous browser shutdown can leave an unreferenced temporary ZIP.
+      // Source episodes and checkpoints live in a different directory.
+      if(![...retainedArchiveFiles.values()].some(file=>file?.job==='archive-'+data.jobId))await mediaDeleteJob('archive-'+data.jobId);
+      const output=await mediaOutput('archive-'+data.jobId,'application/zip');
+      try{blob=await zipBlob(files,'application/zip',progress=>{if(Date.now()-lastProgress<500&&progress.index<progress.total)return;lastProgress=Date.now();
+        imageProgress({jobId:data.jobId,runId:data.runId},`Собираю архив: ${progress.index}/${progress.total} файлов · ${(progress.bytes/1048576).toFixed(1)} МиБ`);},output);}catch(error){await output.abort();throw error;}
+    }else blob = extension==='cbr'?makeCbr(files):zip(files, extension === 'cbz' ? 'application/vnd.comicbook+zip' : 'application/zip');
   } else {
     extension=data.format||'epub';
     switch(extension){
@@ -194,17 +214,20 @@ async function exportJob(data) {
   }
   const url = URL.createObjectURL(blob);
   retained.add(url);
+  if(data.kind==='anime')retainedArchiveFiles.set(url,mediaReferences.get(blob));
   const suffix = data.partial ? ' - частично' : skipped.length ? ' - доступные главы' : '';
   return {url, filename: safe(title) + suffix + '.' + extension,bytes:blob.size};
 }
 async function exportEpisode(message){
   const job=await loadJob(message.jobId),chapter=job.chapters[message.index];
-  if(!chapter||chapter.outputFormat!=='files')throw new Error('Серия не готова к сохранению.');
+  if(!chapter||chapter.kind!=='anime'||chapter.mediaError)throw new Error('Серия не готова к сохранению.');
+  if(chapter.delivered)return {delivered:true};
+  if(message.type==='EXPORT_EPISODE'&&chapter.outputFormat!=='files'){chapter.outputFormat='files';await checkpointWrite(message.jobId,message.index,chapter);}
   if(message.type==='VIDEO_DOWNLOAD_ID'){chapter.downloadId=message.downloadId;await checkpointWrite(message.jobId,message.index,chapter);return {ok:true};}
-  if(message.type==='VIDEO_SAVED'){chapter.delivered=true;chapter.files=[];await checkpointWrite(message.jobId,message.index,chapter);return {ok:true};}
+  if(message.type==='VIDEO_SAVED'){const oldFiles=(chapter.files||[]).map(file=>file.data);chapter.delivered=true;chapter.files=[];await checkpointWrite(message.jobId,message.index,chapter);for(const file of oldFiles)await mediaDeleteFile(file);return {ok:true};}
   const file=chapter.files?.[0];if(!file)throw new Error('Нет файла серии.');
   const ext=file.name.endsWith('.mp4')?'mp4':'ts';
-  const blob=file.data instanceof Blob?file.data:new Blob([file.data],{type:ext==='mp4'?'video/mp4':'video/mp2t'});
+  const data=await mediaFile(file.data),blob=data instanceof Blob?data:new Blob([data],{type:ext==='mp4'?'video/mp4':'video/mp2t'});
   const url=URL.createObjectURL(blob);retained.add(url);
   return {url,filename:`${safe(message.title)}. ${safe(String(chapter.number))}${message.seasonSuffix?' (сезон '+safe(String(chapter.volume))+')':''}.${ext}`,bytes:blob.size,downloadId:chapter.downloadId};
 }
@@ -226,12 +249,14 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         await Promise.allSettled([...job.pending]);
       }
       if(['COMMIT','DISCARD'].includes(message.type)){await checkpointDelete(message.jobId);await videoCacheDelete(message.jobId);jobs.delete(message.jobId);return {ok:true};}
-      if(message.type==='RESET'){job.stopped=false;job.paused=false;job.bytes=job.chapters.filter(chapter=>chapter&&chapter.outputFormat!=='files').reduce((sum,chapter)=>sum+(chapter.files||[]).reduce((n,file)=>n+videoSize(file.data),0),0);}
-      return {ok:true,indices:job.chapters.map((chapter,index)=>chapter&&chapter.delivered!==false?index:null).filter(index=>index!==null)};
+      await checkStoredMedia(job);
+      if(message.type==='RESET'){job.stopped=false;job.paused=false;job.bytes=job.chapters.filter(chapter=>chapter&&!chapter.mediaError&&chapter.outputFormat!=='files').reduce((sum,chapter)=>sum+(chapter.files||[]).reduce((n,file)=>n+videoSize(file.data),0),0);}
+      return {ok:true,indices:job.chapters.map((chapter,index)=>chapter&&!chapter.mediaError&&chapter.delivered!==false?index:null).filter(index=>index!==null)};
     })().then(respond).catch(error=>respond({ok:false,error:error.message}));return true;
   }
   if (message.type === 'RELEASE') {
     if (retained.delete(message.url)) URL.revokeObjectURL(message.url);
+    const file=retainedArchiveFiles.get(message.url);retainedArchiveFiles.delete(message.url);if(file)mediaDeleteFile(file).catch(()=>{});
     respond({ok: true});
   }
   if (message.type === 'EXPORT') {

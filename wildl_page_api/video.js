@@ -210,11 +210,11 @@ async function videoParts(message,job,signature,urls,extension,rangeMeta=null) {
   const settled=await Promise.allSettled(Array.from({length:job.videoWorkers},(_,i)=>worker(i)));
   const error=settled.find(item=>item.status==='rejected');job.videoFailed=null;if(error)throw error.reason;
   await imageCheckpoint(job);if(done!==urls.length)throw new Error('Получены не все фрагменты видео.');
-  const blob=extension==='ts'&&message.chapter.videoContainer!=='original'?await videoRemuxTs(chunks,message,job):new Blob(chunks,{type:extension==='mp4'?'video/mp4':'video/mp2t'});
+  const blob=extension==='ts'&&message.chapter.videoContainer!=='original'?await videoRemuxTs(chunks,message,job):
+    typeof mediaConcat==='function'?await mediaConcat(key,chunks,extension==='mp4'?'video/mp4':'video/mp2t'):new Blob(chunks,{type:extension==='mp4'?'video/mp4':'video/mp2t'});
   if(extension==='ts'&&message.chapter.videoContainer!=='original')extension='mp4';
   if(message.chapter.outputFormat!=='files'&&job.bytes+blob.size>0xf0000000)throw videoLocalError('Архив MP4 превышает 4 ГБ. Выберите отдельные файлы.');
-  const data=message.chapter.outputFormat==='files'?blob:new Uint8Array(await blob.arrayBuffer());
-  return {name:'Серия '+message.chapter.number+'.'+extension,data};
+  return {name:'Серия '+message.chapter.number+'.'+extension,data:blob};
 }
 async function probeVideoRange(job,url) {
   const result=await videoFetch(job,url,{headers:{Range:'bytes=0-0'},range:{start:0,end:0},probe:true,maxBytes:1});
@@ -250,7 +250,8 @@ async function downloadVideo(message,job) {
   let result=await videoFetch(job,url);
   if(String.fromCharCode(...result.bytes.slice(4,8))==='ftyp'){
     if(result.bytes.length+(message.chapter.outputFormat==='files'?0:job.bytes)>0xf0000000)throw videoLocalError('Архив превышает 4 ГБ. Уменьшите диапазон серий.');
-    return videoFinished(message,job,{name:'Серия '+message.chapter.number+'.mp4',data:message.chapter.outputFormat==='files'?new Blob([result.bytes],{type:'video/mp4'}):result.bytes});
+    const data=typeof mediaPersist==='function'?await mediaFile(await mediaPersist(message.jobId||'video-direct',result.bytes,'video/mp4')):new Blob([result.bytes],{type:'video/mp4'});
+    return videoFinished(message,job,{name:'Серия '+message.chapter.number+'.mp4',data});
   }
   let manifest;
   for(let depth=0;depth<4;depth++){

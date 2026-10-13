@@ -82,7 +82,7 @@ onmessage=async event=>{const message=event.data;
    initSegment=null;tracks=[];timescales={};ends={};outputCount=0;psiBuffers=new Map();pmtPids=new Set();streamTypes=new Set();pmtSeen=false;
    transmuxer=new muxjs.Transmuxer({remux:true,keepOriginalTimestamps:false});
    transmuxer.on('data',segment=>{
-    if(!initSegment){initSegment=new Uint8Array(segment.initSegment);tracks=muxjs.probe.tracks(initSegment);timescales=muxjs.probe.timescale(initSegment);}
+    if(!initSegment){initSegment=new Uint8Array(segment.initSegment);tracks=muxjs.probe.tracks(initSegment);timescales=muxjs.probe.timescale(initSegment);postMessage({type:'init',bytes:new Uint8Array(initSegment)});}
     timing(segment.data);outputCount++;
     postMessage({type:'data',bytes:segment.data},[segment.data.buffer]);
    });

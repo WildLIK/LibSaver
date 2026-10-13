@@ -29,6 +29,12 @@
 !tests/optimized-files.cjs
 !tests/image-workers.cjs
 !tests/default-folder.cjs
+!tests/archive-saving.cjs
+!tests/zip-blob.cjs
+!tests/media-files.cjs
+!tests/mirrors.cjs
+!tests/mirror-ui.cjs
+!docs/MIRRORS.md
 !docs/BENCHMARK.md
 !docs/
 !docs/COMPARISON.md

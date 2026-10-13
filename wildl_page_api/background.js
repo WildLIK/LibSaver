@@ -1,4 +1,4 @@
-if(typeof importScripts==='function')importScripts('sites.js', 'request-headers.js', 'page.js', 'video.js', 'updates.js','library.js');
+if(typeof importScripts==='function')importScripts('sites.js', 'mirrors.js', 'request-headers.js', 'page.js', 'video.js', 'updates.js','library.js');
 let state = {running: false, inspecting: false, paused: false, saving: false, title: '', total: 0,
   done: 0, status: 'Готово.', mode: '', branches: [], selectedBranch: '', chapterCount: 0, slug: '',
   kind: 'novel', siteName: '', siteId: 3, starting: false, skipped:0, skippedChapters:[], plan:[],
@@ -51,6 +51,7 @@ async function checkQuality(force=false){
   finally{if(qualityProbe===probe){qualityProbe=null;state.qualityChecking=false;await clearImageRequestHeaders();await publish();}}
 }
 function publicState(){const {catalogue,plan,...view}=state;return view;}
+let restoringState=true;
 const restored = chrome.storage.session.get('wildl').then(async ({wildl}) => {
   if (wildl) {({state, jobId, tabId, lastSeen} = wildl);state.qualityChecking=false;if(!state.catalogue)state.catalogue=(await chrome.storage.session.get('wildlCatalogue')).wildlCatalogue||null;persistedCatalogue=state.catalogue;}
   else if(chrome.storage.local){
@@ -68,7 +69,7 @@ const restored = chrome.storage.session.get('wildl').then(async ({wildl}) => {
       }
     }
   }
-});
+}).finally(async()=>{restoringState=false;await publish();});
 async function publish() {
   if(state.catalogue!==persistedCatalogue){await chrome.storage.session.set({wildlCatalogue:state.catalogue});persistedCatalogue=state.catalogue;}
   const {catalogue,...sessionState}=state;
@@ -81,6 +82,7 @@ function isSite(url) {
   return !!getLibSite(url);
 }
 async function findTab(sourceUrl) {
+  if(typeof mirrorReady!=='undefined')await mirrorReady;
   if(sourceUrl){const url=new URL(sourceUrl);return (await chrome.tabs.query({})).find(tab=>{try{const other=new URL(tab.url);return other.hostname===url.hostname&&other.pathname.split("/").find(x=>/^\d+--/.test(x))===url.pathname.split("/").find(x=>/^\d+--/.test(x));}catch{return false;}});}
   const tabs = await chrome.tabs.query({active: true, lastFocusedWindow: true});
   if (tabs[0] && isSite(tabs[0].url)) return tabs[0];
@@ -163,7 +165,7 @@ async function fail(error,status='Ошибка') {
       ...chapter,reason:(state.skippedChapters||[]).find(item=>item.index===chapter.index)?.reason || 'Не скачана: загрузка прервана.'
     }));
     state.recovery = {jobId:archiveId,title:state.title,slug:state.slug,kind:state.kind,format:state.format,
-      total:state.total,done:retained.indices.length,skipped,partial:true,error:error.message||String(error)};
+      total:state.total,done:retained.indices.length,skipped,partial:retained.indices.length+(state.skippedChapters?.length||0)<state.total,error:error.message||String(error)};
     state.done = retained.indices.length;
     log(`Сохранено на диске ${state.done} ${state.kind==='anime'?'серий':'глав'}. Можно продолжить загрузку${state.done?' или сохранить скачанное':''}.`);
   } else if(wasRunning)await discard(archiveId);
@@ -175,15 +177,24 @@ async function saveRecovered(format) {
   if(!recovery || state.running || state.inspecting)return;
   const formats = recovery.kind==='manga'?['cbz','zip','cbr']:recovery.kind==='anime'?['files','zip']:['epub','txt','fb2','pdf','docx','mobi'];
   if(!recovery.done||recovery.format==='files')return;
-  const message = {...recovery,keepCheckpoint:true,format:formats.includes(format)?format:recovery.format};
+  const message = {...recovery,keepCheckpoint:!!recovery.partial,format:formats.includes(format)?format:recovery.format};
   state.running=true;state.saving=true;state.status=recovery.kind==='anime'?'Собираю скачанные серии…':'Собираю скачанные главы...';await publish();
   try {
-    await saveResult(message);
+    if(recovery.kind==='anime'&&message.format==='files'){
+      state.format='files';state.cfg={...state.cfg,format:'files'};state.recovery={...recovery,format:'files'};
+      const stored=await chrome.runtime.sendMessage({target:'wildl-export',type:'INDICES',jobId:recovery.jobId});
+      if(stored?.indices?.length!==recovery.done)throw new Error('Часть сохранённых серий недоступна. Нажмите «Продолжить загрузку» для восстановления.');
+      for(const index of stored.indices||[]){const chapter=state.plan.find(item=>item.index===index);if(!chapter)throw new Error('Не найдена серия в плане загрузки.');
+        await saveVideoEpisode({index,chapter},jobId);}
+      if(!recovery.partial)await chrome.runtime.sendMessage({target:'wildl-export',type:'COMMIT',jobId:recovery.jobId});
+    }else await saveResult(message);
+    if(state.archiveId!==recovery.jobId)return;
     state.done=recovery.done;state.total=recovery.total;
     state.skipped=recovery.skipped.length;state.skippedChapters=recovery.skipped;
-    state.partial=true;state.summary={done:state.done,total:state.total,skipped:state.skipped,partial:true};
-    state.status='Скачанные главы переданы браузеру для сохранения.';
-  } catch(error) {state.status='Ошибка сохранения';log(error.message||String(error));}
+    state.partial=!!recovery.partial;state.summary={done:state.done,total:state.total,skipped:state.skipped,partial:state.partial};
+    state.status=recovery.kind==='anime'?'Скачанные серии сохранены.':'Скачанные главы сохранены.';
+    if(!recovery.partial){state.recovery=null;state.archiveId=null;state.cfg=null;}
+  } catch(error) {if(state.archiveId!==recovery.jobId)return;await fail(error,'Ошибка сохранения');}
   state.running=false;state.saving=false;await publish();
 }
 async function discard(id) {
@@ -216,16 +227,45 @@ async function saveResult(message) {
     await chrome.runtime.sendMessage({target: 'wildl-export', type: 'RELEASE', url: file.url}); throw error;
   }
   const {wildlDownloads = {}} = await chrome.storage.session.get('wildlDownloads');
-  wildlDownloads[id] = {url: file.url, jobId};
+  wildlDownloads[id] = {url: file.url, jobId:message.jobId,awaitCompletion:true,keepCheckpoint:!!message.keepCheckpoint};
   wildlDownloads[id].summary={kind:message.kind,done:message.done??message.total,total:message.total,skipped:message.skipped?.length||0,partial:!!message.partial};
   await chrome.storage.session.set({wildlDownloads});
   await addHistory({id,title:message.title||state.title,sourceUrl:state.sourceUrl,filename,bytes:file.bytes||0,kind:message.kind,format:message.format||state.format,
     done:message.done??message.total,total:message.total,partial:!!message.partial,branch:state.branches?.find(item=>item.id===state.selectedBranch)?.name||'',
     from:state.cfg?.from??'',to:state.cfg?.to??''});
-  if(chrome.downloads.search){const items=await chrome.downloads.search({id});if(['complete','interrupted'].includes(items[0]?.state))
-    await finishHistory(id,items[0].state,{bytes:items[0].fileSize>=0?items[0].fileSize:file.bytes||0,filename:items[0].filename||filename});}
-  if(!message.keepCheckpoint)await chrome.runtime.sendMessage({target:'wildl-export',type:'COMMIT',jobId:message.jobId});
-  return id;
+  try{
+    // A download ID confirms creation, not successful writing to disk.
+    // Poll outside the command queue: onChanged is queued behind this export.
+    for(;;){
+      const item=(await chrome.downloads.search({id}))[0];
+      if(item?.state==='complete'){
+        await finishHistory(id,'complete',{bytes:item.fileSize>=0?item.fileSize:file.bytes||0,filename:item.filename||filename});
+        if(!message.keepCheckpoint){const committed=await chrome.runtime.sendMessage({target:'wildl-export',type:'COMMIT',jobId:message.jobId});
+          if(!committed?.ok)log('Файл записан, но контрольные точки пока не очищены.');}
+        log(`Файл успешно сохранён: ${item.filename||filename} (${((file.bytes||0)/1048576).toFixed(1)} МиБ).`);
+        return id;
+      }
+      if(!item||item.state==='interrupted'){
+        const error=downloadFailure(item);
+        await finishHistory(id,'interrupted',{error:item?.error||'DOWNLOAD_NOT_FOUND',filename:item?.filename||filename});
+        throw error;
+      }
+      lastSeen=Date.now();
+      if(state.archiveId===message.jobId){state.status=`Записываю файл на диск: ${((file.bytes||0)/1048576).toFixed(1)} МиБ…`;await publish();}
+      await new Promise(resolve=>setTimeout(resolve,500));
+    }
+  }finally{
+    await chrome.runtime.sendMessage({target:'wildl-export',type:'RELEASE',url:file.url}).catch(()=>{});
+    const current=(await chrome.storage.session.get('wildlDownloads')).wildlDownloads||{};
+    delete current[id];await chrome.storage.session.set({wildlDownloads:current});
+  }
+}
+function downloadFailure(item){
+  const code=item?.error||'DOWNLOAD_NOT_FOUND';
+  const reasons={FILE_NO_SPACE:'Не хватает места для записи файла. Для ZIP нужны место под сохранённые серии, временный архив и итоговую копию. Освободите место на диске профиля браузера и на диске загрузок либо выберите «По одному файлу».',FILE_ACCESS_DENIED:'Нет доступа к выбранной папке.',FILE_TOO_LARGE:'Файл слишком большой для выбранного диска или файловой системы.',
+    FILE_FAILED:'Браузер не смог записать файл на диск.',FILE_TRANSIENT_ERROR:'Временная ошибка записи файла.',FILE_VIRUS_INFECTED:'Защитная программа заблокировала файл.',FILE_BLOCKED:'Браузер заблокировал файл.',
+    USER_CANCELED:'Сохранение отменено.',USER_SHUTDOWN:'Браузер был закрыт.',NETWORK_FAILED:'Браузер прервал получение файла.',NETWORK_TIMEOUT:'Истекло время получения файла.',DOWNLOAD_NOT_FOUND:'Запись загрузки не найдена.'};
+  return new Error(`Ошибка сохранения (${code}): ${reasons[code]||'Браузер прервал сохранение файла.'} Скачанные данные оставлены для повторного сохранения.`);
 }
 // A chapter acknowledgement in files mode means the browser has finished writing it.
 async function saveVideoEpisode(message,runId) {
@@ -233,11 +273,12 @@ async function saveVideoEpisode(message,runId) {
   const request={target:'wildl-export',jobId:archiveId,index:message.index};
   state.videoEta={series:String(message.chapter.number),at:Date.now(),phase:'saving',seconds:null,progress:1};
   const file=await chrome.runtime.sendMessage({...request,type:'EXPORT_EPISODE',title:state.title,seasonSuffix:state.plan.filter(item=>String(item.number)===String(message.chapter.number)).length>1});
+  if(file?.delivered)return;
   if(!file?.url)throw new Error(file?.error||'Нет видео для сохранения.');
   let id=file.downloadId;
   try{
     let existing=id!=null?(await chrome.downloads.search({id}))[0]:null;
-    if(existing?.state==='interrupted'&&existing.canResume){await chrome.downloads.resume(id);existing=(await chrome.downloads.search({id}))[0];}
+    if(existing?.state==='interrupted'&&existing.canResume){await chrome.downloads.resume(id).catch(()=>{});existing=(await chrome.downloads.search({id}))[0];}
     if(!existing||existing.state==='interrupted'){
       const {settings}=await getLibrary();
       const filename=(settings.folder?settings.folder+'/':'')+safeVideoFolder(state.title)+'/'+file.filename;
@@ -255,7 +296,7 @@ async function saveVideoEpisode(message,runId) {
         const saved=await chrome.runtime.sendMessage({...request,type:'VIDEO_SAVED'});if(!saved?.ok)throw new Error(saved?.error||'Не удалось отметить сохранённую серию.');log(`Серия ${message.chapter.number}: файл успешно сохранён.`);return;
       }
       if(jobId!==runId){if(item?.state==='in_progress')await chrome.downloads.cancel(id).catch(()=>{});throw new Error('Загрузка прервана. Можно продолжить.');}
-      if(!item||item.state==='interrupted'){await finishHistory(id,'interrupted');throw new Error('Сохранение серии отменено или прервано. Можно продолжить.');}
+      if(!item||item.state==='interrupted'){await finishHistory(id,'interrupted',{error:item?.error||'DOWNLOAD_NOT_FOUND'});throw downloadFailure(item);}
       lastSeen=Date.now();if(!state.paused)state.status='Сохраняю файл серии '+message.chapter.number+'…';
       await publish();await new Promise(resolve=>setTimeout(resolve,500));
     }
@@ -328,10 +369,11 @@ async function handlePage(message) {
       await clearImageRequestHeaders();
       const direct=state.kind==='anime'&&state.format==='files';
       const id=direct?null:await saveResult({...message,jobId:state.archiveId||message.jobId});
+      if(jobId!==message.jobId)return;
       if(direct)await chrome.runtime.sendMessage({target:'wildl-export',type:'COMMIT',jobId:state.archiveId||message.jobId});
       state.recovery=null;state.archiveId=null;state.cfg=null;
-      state.status = direct?`Сохранено ${state.done} из ${state.total} серий. Пропущено: ${state.skipped}.`:'Файл передан браузеру для сохранения.'; log(direct?'Все доступные серии сохранены отдельными файлами.':'Загрузка файла создана: '+id);
-    } catch (error) { await fail(error); return; }
+      state.status = direct||state.skipped?`Сохранено ${state.done} из ${state.total} ${state.kind==='anime'?'серий':'глав'}. Пропущено: ${state.skipped}.`:'Файл сохранён.'; log(direct?'Все доступные серии сохранены отдельными файлами.':'Сохранение файла завершено: '+id);
+    } catch (error) { if(jobId===message.jobId)await fail(error); return; }
     state.running = false; state.saving = false; jobId = null;
   }
   await publish();
@@ -345,7 +387,7 @@ async function dispatch(message, sender) {
     await publish();return {ok:true};
   }
   if (message.type === 'GET_STATE') {
-    if ((state.running || state.inspecting) && Date.now() - lastSeen > 90000)
+    if ((state.running || state.inspecting) && !state.saving && Date.now() - lastSeen > 90000)
       await fail(new Error(state.kind==='anime'?'Нет ответа от вкладки. Обновите страницу фильма / сериала и повторите запуск.':'Нет ответа от вкладки. Обновите страницу книги и повторите запуск.'));
     return state;
   }
@@ -353,7 +395,7 @@ async function dispatch(message, sender) {
   if (message.type === 'AUTO_INSPECT') {if(!state.running&&!state.inspecting&&!state.recovery){const tab=await findTab();const slug=tab&&new URL(tab.url).pathname.split('/').find(x=>/^\d+--/.test(x));if(!state.title||slug!==state.slug||getLibSite(tab?.url)?.id!==state.siteId||(state.kind==='anime'&&state.availabilityVersion!==3))await start({},true);}return state;}
   if(message.type==='CHECK_QUALITY'){checkQuality(true).catch(()=>{});return state;}
   if(message.type==='CONTINUE'){if(message.format&&state.cfg){const formats=state.kind==='manga'?['cbz','zip','cbr']:state.kind==='anime'?['files','zip']:['epub','txt','fb2','pdf','docx','mobi'];if(state.kind==='anime'&&message.format!==state.cfg.format)throw new Error('При продолжении сохраните исходный формат загрузки.');if(!formats.includes(message.format))throw new Error('Не поддерживается формат: '+message.format);state.cfg={...state.cfg,format:message.format};}if(message.videoContainer&&state.kind==='anime'&&['mp4','original'].includes(message.videoContainer))state.cfg={...state.cfg,videoContainer:message.videoContainer};await start({},false,true);return state;}
-  if(message.type==='INTERRUPTED'&&message.jobId===jobId&&sender.tab?.id===tabId){await fail(new Error('Исходная вкладка закрыта или перезагружена. Можно продолжить.'));return state;}
+  if(message.type==='INTERRUPTED'&&message.jobId===jobId&&sender.tab?.id===tabId){if(!state.saving)await fail(new Error('Исходная вкладка закрыта или перезагружена. Можно продолжить.'));return state;}
   if (message.type === 'SELECT_BRANCH' && !state.running && !state.inspecting) {
     const id = String(message.branchId || '');
     if (id && !(state.branches || []).some(branch => branch.id === id)) throw new Error('Переводчик не найден. Обновите список.');
@@ -392,6 +434,17 @@ async function dispatch(message, sender) {
   return null;
 }
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if(['GET_MIRRORS','CHECK_MIRRORS','ENABLE_MIRROR','REMOVE_MIRROR','SET_MIRROR_AUTO'].includes(message.type)){
+    if(sender.url!==chrome.runtime.getURL('popup.html')){respond({error:'Настройки зеркал доступны только из окна расширения.'});return;}
+    (async()=>{
+      if(message.type==='CHECK_MIRRORS')return checkMirrors(true);
+      if(message.type==='ENABLE_MIRROR')return enableMirror(message.origin,message.siteId);
+      if(message.type==='SET_MIRROR_AUTO')return setMirrorAuto(!!message.auto);
+      if(message.type==='REMOVE_MIRROR'){const origin=mirrorOrigin(message.origin);await mirrorChange(saved=>({...saved,enabled:(saved.enabled||[]).filter(item=>item.origin!==origin)}));}
+      return mirrorView();
+    })().then(respond).catch(error=>respond({error:error.message}));return true;
+  }
+  if(message.type==='GET_STATE'&&restoringState){respond({...publicState(),restoreChecking:true,status:'Проверяю сохранённые файлы. Пожалуйста, подождите…'});return;}
   if(['GET_LIBRARY','SAVE_LIBRARY_SETTINGS','CLEAR_HISTORY','SHOW_DOWNLOAD'].includes(message.type)){
     (async()=>{if(message.type==='SAVE_LIBRARY_SETTINGS')await saveLibrarySettings(message.settings);
       if(message.type==='CLEAR_HISTORY')await changeHistory(()=>[]);
@@ -414,7 +467,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     return true;
   }
   // Controls and heartbeat must not wait behind a paused image download.
-  if (['PREPARE_RELOAD','NEW_TITLE'].includes(message.type) || (message.source === 'wildl-page' && message.type === 'chapter') ||
+  if (['PREPARE_RELOAD','NEW_TITLE','GET_STATE','INTERRUPTED'].includes(message.type) || (message.source === 'wildl-page' && message.type === 'chapter') ||
       (pendingChapter && ['PAUSE','RESUME','STOP','GET_STATE','INTERRUPTED'].includes(message.type)) ||
       (message.source === 'wildl-page' && message.type === 'heartbeat')) {
     dispatch(message, sender).then(reply).catch(async error => {
@@ -440,14 +493,23 @@ chrome.downloads.onChanged.addListener(delta => {
     const {wildlDownloads = {}} = await chrome.storage.session.get('wildlDownloads');
     const download = wildlDownloads[delta.id]; if (!download) return;
     const details=chrome.downloads.search?(await chrome.downloads.search({id:delta.id}))[0]:null;
-    await finishHistory(delta.id,delta.state.current,{...(details?.filename?{filename:details.filename}:{}),...(details?.fileSize>=0?{bytes:details.fileSize}:{})});
+    await finishHistory(delta.id,delta.state.current,{...(details?.filename?{filename:details.filename}:{}),...(details?.fileSize>=0?{bytes:details.fileSize}:{}),...(details?.error?{error:details.error}:{})});
     const url = download.url;
     await chrome.runtime.sendMessage({target: 'wildl-export', type: 'RELEASE', url}).catch(() => {});
     delete wildlDownloads[delta.id]; await chrome.storage.session.set({wildlDownloads});
+    // A restarted worker has no polling promise; reconcile the persisted export.
+    if(download.awaitCompletion){
+      if(delta.state.current==='complete'&&!download.keepCheckpoint)await chrome.runtime.sendMessage({target:'wildl-export',type:'COMMIT',jobId:download.jobId}).catch(()=>{});
+      if(state.archiveId===download.jobId&&state.saving){
+        if(delta.state.current==='interrupted'){await fail(downloadFailure(details));return;}
+        if(!download.keepCheckpoint){state.recovery=null;state.archiveId=null;state.cfg=null;}
+        state.running=false;state.saving=false;jobId=null;
+      }
+    }
     const summary=download.summary||{};
     const status = delta.state.current === 'complete' ?
       (summary.skipped ? `Сохранено ${summary.done} из ${summary.total} ${summary.kind==='anime'?'серий':'глав'}. ${summary.partial?'Не скачано':'Пропущено'}: ${summary.skipped}.` : 'Файл сохранён.') :
-      'Сохранение отменено или прервано.';
+      downloadFailure(details).message;
     if (!state.running && !state.inspecting && jobId === null) state.status = status;
     log(status); await publish();
   }).catch(() => {});

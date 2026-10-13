@@ -1,9 +1,9 @@
 const HISTORY_KEY='wildlHistory',SAVE_SETTINGS_KEY='wildlSaveSettings';
 let libraryQueue=Promise.resolve();
 function normalizeSaveSettings(value={}) {
-  const folder=String(value.folder??'LibSaver').trim().replace(/\\/g,'/').replace(/\/{2,}/g,'/');
+  const folder=String(value.folder??'WildLib').trim().replace(/\\/g,'/').replace(/\/{2,}/g,'/');
   if(folder.startsWith('/')||/[:*?"<>|\x00-\x1f]/.test(folder)||folder.split('/').some(part=>part==='.'||part==='..'||part.endsWith('.')||part.endsWith(' ')))
-    throw new Error('Укажите подпапку внутри Загрузок, например LibSaver. Абсолютный путь и «..» не поддерживаются.');
+    throw new Error('Укажите подпапку внутри Загрузок, например WildLib. Абсолютный путь и «..» не поддерживаются.');
   return {folder:folder.replace(/\/+$/,''),ask:!!value.ask};
 }
 async function getLibrary(){

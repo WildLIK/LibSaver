@@ -1,5 +1,5 @@
-const UPDATE_REPOSITORY='https://github.com/WildLIK/LibSaver';
-const UPDATE_API='https://api.github.com/repos/WildLIK/LibSaver/releases/latest';
+const UPDATE_REPOSITORY='https://github.com/WildLIK/WildLib';
+const UPDATE_API='https://api.github.com/repos/WildLIK/WildLib/releases/latest';
 const UPDATE_INTERVAL=24*60*60*1000;
 const UPDATE_ALARM='wildl-release-check';
 let updateRequest=null;

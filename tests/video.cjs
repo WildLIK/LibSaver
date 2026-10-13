@@ -25,7 +25,7 @@ const expected='https://p14.solodcdn.com/video/index.m3u8';assert.equal(vm.runIn
   };
   context.job={controllers:new Set(),bytes:0};context.message={chapter:{number:'1',videoContainer:'original',videoRanges:false,quality:720,videoPlayer:{player:'Kodik',src:'//kodikplayer.com/seria/7/hash/720p'}}};
   const file=await vm.runInContext('downloadVideo(message,job)',context);
-  assert.equal(file.name,'Серия 1.ts');assert.equal(file.data.length,376);assert.equal(file.data[190],1);
+  assert.equal(file.name,'Серия 1.ts');assert.equal(file.data.size,376);assert.equal(new Uint8Array(await file.data.arrayBuffer())[190],1);
   assert.equal(new URLSearchParams(calls.find(call=>call.url.endsWith('/ftor')).body).get('ref'),'https://v5.animelib.org/');
   assert.equal(calls.length,5);
   context.message={chapter:{number:'1180',quality:2160,videoPlayer:{player:'Animelib',video:{quality:[

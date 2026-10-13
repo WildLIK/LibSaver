@@ -48,10 +48,10 @@ function episodeRanges(episodes) {
 function setState(st) {
   if (!st) return;
   state = st;
-  const busy = !!(st.running || st.inspecting || st.qualityChecking || pending);
+  const busy = !!(st.running || st.inspecting || st.qualityChecking || st.restoreChecking || pending);
   const kind = st.kind || 'novel';
   const failed=/ошиб|прерван|отмен/i.test(st.status||'');
-  const searching=st.inspecting || st.qualityChecking || (st.running && (st.starting || st.mode === '')) ||
+  const searching=st.restoreChecking || st.inspecting || st.qualityChecking || (st.running && (st.starting || st.mode === '')) ||
     (pending && ['INSPECT','AUTO_INSPECT','START','CONTINUE'].includes(pendingType) && !st.running);
   const phase=connectionError?'error':st.saving?'saving':st.paused?'paused':searching?'inspect':st.running||pending?'working':failed?'error':st.recovery?'recover':
     st.done>0&&/сохран|передан/i.test(st.status||'')?'complete':'ready';
@@ -59,7 +59,7 @@ function setState(st) {
   document.body.dataset.loading=String(['working','inspect','saving'].includes(phase));
   $('phase').textContent=({saving:'Сборка',paused:'Пауза',inspect:'Поиск',working:'Загрузка',recover:'Продолжить',error:'Ошибка',complete:'Готово',ready:'Готово'})[phase];
   if (formatKind !== kind) {
-    $('format').replaceChildren(...(kind === 'anime' ? [new Option('Видео без ZIP','files'),new Option('ZIP','zip')] : kind === 'manga' ? [new Option('CBZ', 'cbz'), new Option('ZIP', 'zip'),new Option('CBR','cbr')] :
+    $('format').replaceChildren(...(kind === 'anime' ? [new Option('По одному файлу','files'),new Option('Одним архивом','zip')] : kind === 'manga' ? [new Option('CBZ', 'cbz'), new Option('ZIP', 'zip'),new Option('CBR','cbr')] :
       [new Option('EPUB', 'epub'), new Option('TXT', 'txt'),new Option('FB2','fb2'),new Option('PDF','pdf'),new Option('DOCX','docx'),new Option('MOBI','mobi')]));
     const previousFormat=st.running?st.format:st.recovery?.format;
     if(previousFormat&&[...$('format').options].some(option=>option.value===previousFormat))$('format').value=previousFormat;
@@ -147,7 +147,7 @@ function setState(st) {
   const fraction=kind==='anime'&&st.running&&!st.inspecting&&typeof st.videoEta?.progress==='number'&&Number.isFinite(st.videoEta.progress)?Math.max(0,Math.min(1,st.videoEta.progress)):0;
   const rawPercent=total?(done+skipped+fraction)*100/total:0;
   const percent=fraction>0?Math.min(99.9,Math.round(rawPercent*10)/10):Math.min(100,Math.round(rawPercent));
-  $('count').textContent = st.qualityChecking?'Проверяю разрешения':phase==='inspect' ? kind==='anime'?'Определяю список серий':'Определяю список глав' : `${done.toLocaleString('ru-RU')} / ${total.toLocaleString('ru-RU')} ${unit}${skipped?' · пропущено '+skipped:''}`;
+  $('count').textContent = st.restoreChecking?'Проверяю сохранённые файлы':st.qualityChecking?'Проверяю разрешения':phase==='inspect' ? kind==='anime'?'Определяю список серий':'Определяю список глав' : `${done.toLocaleString('ru-RU')} / ${total.toLocaleString('ru-RU')} ${unit}${skipped?' · пропущено '+skipped:''}`;
   $('percent').textContent = phase==='error' ? 'ERROR' : percent + '%';
   $('percent').title=kind==='anime'?'Общий прогресс всех выбранных серий, включая текущую. MP4 — по байтам, HLS — по фрагментам.':'Прогресс выбранных глав';
   $('percent').hidden = phase==='inspect' || (phase==='working' && !total);
@@ -184,6 +184,8 @@ function setState(st) {
   $('savePartial').hidden=st.recovery?.format==='files'||!st.recovery?.done;
   $('savePartial').disabled=busy||!!connectionError;
   $('savePartial').textContent=st.recovery?`Сохранить скачанное (${st.recovery.done} ${unit})`:'Сохранить скачанное';
+  $('saveSeparate').hidden=st.kind!=='anime'||!st.recovery?.done||st.recovery.format==='files';
+  $('saveSeparate').disabled=busy||!!connectionError;
   $('pauseJob').disabled = !!connectionError || !st.running || !!st.saving || !!st.starting || pending;
   $('videoRanges').disabled=busy||!!st.recovery;$('recommended').disabled=busy||!!st.recovery;
   $('stop').disabled = !!connectionError || !(st.running || st.inspecting || st.qualityChecking) || !!st.saving || pending;
@@ -263,14 +265,15 @@ $('branch').onchange = () => send({type: 'SELECT_BRANCH', branchId: $('branch').
 $('pauseJob').onclick = () => send({type: state.paused ? 'RESUME' : 'PAUSE'});
 $('stop').onclick = () => send({type: 'STOP'});
 $('savePartial').onclick = () => send({type:'SAVE_PARTIAL',format:$('format').value});
+$('saveSeparate').onclick = () => send({type:'SAVE_PARTIAL',format:'files'});
 function renderUpdates(info){
   if(!info||typeof info.installedVersion!=='string')return;
   $('installedVersion').textContent='Версия '+(chrome.runtime.getManifest?.()?.version_name||info.installedVersion);
   $('updateBanner').hidden=!info.available;
   $('updateTitle').textContent=info.available?'Доступна версия '+info.latestVersion:'';
   // Only navigate to our own releases, even if cached data is malformed.
-  let url='https://github.com/WildLIK/LibSaver/releases/latest';
-  try{const candidate=new URL(info.releaseUrl);if(candidate.protocol==='https:'&&candidate.hostname==='github.com'&&!candidate.username&&!candidate.password&&candidate.pathname.startsWith('/WildLIK/LibSaver/releases/'))url=candidate.href;}catch{}
+  let url='https://github.com/WildLIK/WildLib/releases/latest';
+  try{const candidate=new URL(info.releaseUrl);if(candidate.protocol==='https:'&&candidate.hostname==='github.com'&&!candidate.username&&!candidate.password&&candidate.pathname.startsWith('/WildLIK/WildLib/releases/'))url=candidate.href;}catch{}
   $('updateDownload').href=url;
   $('updateStatus').textContent=info.error?'Проверка недоступна: '+info.error:
     info.available?'Новый выпуск готов. Скачайте его и замените файлы установленного расширения.':
@@ -288,7 +291,7 @@ async function refreshUpdates(force=false){
   finally{clearTimeout(timer);updateChecking=false;$('checkUpdates').disabled=false;}
 }
 $('checkUpdates').onclick=()=>refreshUpdates(true);
-chrome.runtime.onMessage.addListener(message => { if (message.type === 'STATE' && message.state) acceptState(message.state);
+chrome.runtime.onMessage.addListener(message => { if (message.type === 'STATE' && message.state){const wasRestoring=state.restoreChecking;acceptState(message.state);if(wasRestoring&&!state.restoreChecking)inspectIfNeeded().catch(showError);}
   if(message.type==='UPDATE_STATUS')renderUpdates(message.update); });
 async function refresh() {
   if (refreshing) return false;
@@ -303,7 +306,7 @@ async function refresh() {
   finally{refreshing=false;}
 }
 async function inspectIfNeeded() {
-  if (!pending && !state.running && !state.inspecting && !state.recovery) await send({type: 'AUTO_INSPECT'});
+  if (!pending && !state.running && !state.inspecting && !state.restoreChecking && !state.recovery) await send({type: 'AUTO_INSPECT'});
 }
 async function initialize() {
   if(chrome.storage?.local)try{userPreferences=(await chrome.storage.local.get('wildlPreferences')).wildlPreferences||{};}catch{}

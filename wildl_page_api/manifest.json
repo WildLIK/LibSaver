@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "WildL Downloader",
+  "name": "WildLib",
   "version": "2.3",
   "version_name": "2.3",
   "minimum_chrome_version": "116",
   "description": "Загружает любимые произведения: новеллы, манги и аниме с сайтов группы Lib",
-  "homepage_url": "https://github.com/WildLIK/LibSaver",
+  "homepage_url": "https://github.com/WildLIK/WildLib",
   "permissions": [
     "tabs",
     "downloads",
@@ -37,10 +37,13 @@
     "https://*.kodikvideo.com/*",
     "https://*.kodik-cdn.com/*",
     "https://*.kodikcdn.com/*",
-    "https://*.solodcdn.com/*"
+    "https://*.solodcdn.com/*",
+    "*://*.novelslib.me/*",
+    "*://*.anilib.me/*",
+    "*://*.yaoilib.net/*"
   ],
   "action": {
-    "default_title": "WildL Downloader",
+    "default_title": "WildLib",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
@@ -65,7 +68,10 @@
         "*://*.slashlib.org/*",
         "*://*.shlib.life/*",
         "*://*.animelib.org/*",
-        "*://*.animelib.me/*"
+        "*://*.animelib.me/*",
+        "*://*.novelslib.me/*",
+        "*://*.anilib.me/*",
+        "*://*.yaoilib.net/*"
       ],
       "js": [
         "content.js"
@@ -78,5 +84,8 @@
     "32": "icons/icon-32.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
-  }
+  },
+  "optional_host_permissions": [
+    "https://*/*"
+  ]
 }

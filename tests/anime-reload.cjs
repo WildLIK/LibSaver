@@ -8,7 +8,7 @@ const root=path.resolve(__dirname,'../wildl_page_api'),tmp=fs.mkdtempSync(path.j
  fs.writeFileSync(path.join(tmp,'profile','Default','Preferences'),JSON.stringify({extensions:{ui:{developer_mode:true}}}));
  browser=await chromium.launchPersistentContext(path.join(tmp,'profile'),{executablePath:chromium.executablePath(),headless:true,acceptDownloads:true,downloadsPath:downloads,args:['--enable-unsafe-extension-debugging'],ignoreDefaultArgs:['--disable-extensions']});
  await browser.route('https://v5.animelib.org/**',route=>route.fulfill({body:'<html data-id="5"></html>'}));
- await browser.route('https://api.github.com/repos/WildLIK/LibSaver/releases/latest',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({tag_name:'v2.3'}),headers:{'Access-Control-Allow-Origin':'*'}}));
+ await browser.route('https://api.github.com/repos/WildLIK/WildLib/releases/latest',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({tag_name:'v2.3'}),headers:{'Access-Control-Allow-Origin':'*'}}));
  await browser.route('https://api.cdnlibs.org/**',route=>{
   const u=new URL(route.request().url());let data;
   if(u.pathname.endsWith('/constants'))data={videoServers:[{id:'main',url:'https://video1.cdnlibs.org/.аs/'}]};
@@ -68,7 +68,7 @@ const root=path.resolve(__dirname,'../wildl_page_api'),tmp=fs.mkdtempSync(path.j
  });
  await popup.waitForFunction(()=>!document.querySelector('#updateBanner').hidden);
  assert(await worker.evaluate(()=>state.running),'Release notice must not interrupt a download');
- assert.equal(await popup.locator('#updateDownload').getAttribute('href'),'https://github.com/WildLIK/LibSaver/releases/tag/v2.4');
+ assert.equal(await popup.locator('#updateDownload').getAttribute('href'),'https://github.com/WildLIK/WildLib/releases/tag/v2.4');
  await worker.evaluate(async()=>{await chrome.storage.local.remove('wildlUpdates');await checkForUpdates(true);});
  await popup.waitForFunction(()=>document.querySelector('#updateBanner').hidden);
  await book.evaluate(()=>{history.pushState({},'',location.pathname+'?episode=2');const frame=document.createElement('iframe');frame.src='https://v5.animelib.org/player-test';document.body.append(frame);});
@@ -99,7 +99,7 @@ const root=path.resolve(__dirname,'../wildl_page_api'),tmp=fs.mkdtempSync(path.j
  assert.equal(mediaRequests.filter(url=>url.endsWith('/1.mp4')).length,1,'Episode 1 must not be downloaded twice after reload');
  const file=(await worker.evaluate(()=>chrome.downloads.search({orderBy:['-startTime'],limit:1})))[0];assert.equal(file.state,'complete');
  const library=await worker.evaluate(()=>getLibrary());assert.equal(library.settings.ask,false);assert.equal(library.history[0].status,'complete');
- assert.equal(library.history[0].done,5);assert.equal(library.history[0].filename,file.filename);assert.equal(library.settings.folder,'LibSaver');
+ assert.equal(library.history[0].done,5);assert.equal(library.history[0].filename,file.filename);assert.equal(library.settings.folder,'WildLib');
  // Playwright intercepts downloads and flattens their destination. The default
  // browser directory is checked separately without download interception.
  await popup.locator('.settings > summary').click();await popup.locator('.history-panel > summary').click();

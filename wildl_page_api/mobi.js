@@ -26,7 +26,7 @@ function makeMobi(title,chapters,note='') {
   const fcis=new Uint8Array(44),cv=new DataView(fcis.buffer);fcis.set(encode('FCIS'));cv.setUint32(4,20);cv.setUint32(8,16);cv.setUint32(12,1);cv.setUint32(20,text.length);cv.setUint32(28,32);cv.setUint32(32,8);cv.setUint16(36,1);cv.setUint16(38,1);
   records.unshift(record0);records.push(flis,fcis,new Uint8Array([0xe9,0x8e,13,10]));
   const database=new Uint8Array(78+records.length*8+2),db=new DataView(database.buffer);
-  database.set(encode('LibSaver').slice(0,31));db.setUint16(34,0);const time=Math.floor(Date.now()/1000)+2082844800;db.setUint32(36,time);db.setUint32(40,time);
+  database.set(encode('WildLib').slice(0,31));db.setUint16(34,0);const time=Math.floor(Date.now()/1000)+2082844800;db.setUint32(36,time);db.setUint32(40,time);
   database.set(encode('BOOKMOBI'),60);db.setUint32(68,records.length+1);db.setUint16(76,records.length);
   let position=database.length;for(let index=0;index<records.length;index++){db.setUint32(78+index*8,position);db.setUint32(82+index*8,index+1);position+=records[index].length;}
   return new Blob([database,...records],{type:'application/x-mobipocket-ebook'});
